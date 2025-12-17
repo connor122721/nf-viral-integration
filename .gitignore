@@ -1,0 +1,22 @@
+.ipynb_checkpoints/
+.nextflow/
+.nextflow.log*
+*.ipynb
+scripts/.ipynb_checkpoints
+.vscode*
+
+output_test/
+output*/
+dev*/
+work/
+future/
+
+# Files
+*pdf
+*png
+*svg
+list.eqtls*
+*html
+report.html
+*.sif
+singularity*

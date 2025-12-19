@@ -101,10 +101,12 @@ log.info ""
 //  PROCESSES
 // ========================================================================================
 
+// Generate in silico viral integrations
 process GENERATE_INTEGRATIONS {
     publishDir "${params.outdir}/integrations", mode: 'copy'
     
-    container 'docker://python:3.10'
+    //container 'docker://python:3.10'
+    container '/work/c0murr09/viral_integration.sif'
     
     input:
         path host_genome
@@ -130,9 +132,11 @@ process GENERATE_INTEGRATIONS {
     """
 }
 
+// Simulate HiFi reads 
 process SIMULATE_READS {
     publishDir "${params.outdir}/simulated_reads", mode: 'copy'
     //container 'docker://ajslee/pbsim3:3.0.5'
+    container '/work/c0murr09/viral_integration.sif'
 
     input:
         path chimeric_fasta
@@ -145,10 +149,8 @@ process SIMULATE_READS {
     
     script:
         """
-        module load samtools/1.22.1
-
         # Simulate HiFi reads
-        ~/pbsim \\
+        pbsim \\
             --strategy wgs \\
             --method qshmm \\
             --qshmm ${params.pbsim_model} \\
@@ -160,11 +162,41 @@ process SIMULATE_READS {
             --accuracy-mean ${params.accuracy_mean}
 
         # Generate circular consensus sequences (CCS)
-        ~/ccs \\
+        ccs \\
             simulated*.bam \\
             simulated.ccs.bam \\
             --minPasses 3 \\
             --maxLength 50000
+        """
+}
+
+// Identify integration sites
+process MAPPING_VIRAL_GENOME {
+    publishDir "${params.outdir}/viral_reads", mode: 'copy'
+    
+    container '/work/c0murr09/viral_int.sif'
+
+    input:
+        path ccs_bam
+        path viral_genome_i
+    
+    output:
+        path "simulated_*.bam", emit: bam
+        path "simulated.ccs.bam", emit: ccs
+    
+    script:
+        """
+        # Mapping to Viral Genome
+        minimap2 \\
+            --strategy wgs \\
+            --method qshmm \\
+            --qshmm ${params.pbsim_model} \\
+            --depth ${params.depth} \\
+            --genome ${chimeric_fasta} \\
+            --prefix simulated \\
+            --pass-num=5 \\
+            --length-mean ${params.length_mean} \\
+            --accuracy-mean ${params.accuracy_mean}
         """
 }
 

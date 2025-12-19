@@ -1,0 +1,167 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author Connor Murray
+    Version 1.1.0
+    Description Container for viral integration simulation pipeline with pbsim3/CCS, Picard, & other bioinformatics tools
+    LastUpdated 2025-12-19
+
+%help
+    This container includes:
+    - Python 3.10 for viral_integration.py script
+    - pbsim3 for simulating PacBio HiFi reads
+    - CCS (Circular Consensus Sequencing) for generating consensus sequences
+    - samtools for BAM file manipulation
+    - Picard tools for BAM/SAM file processing and QC metrics
+
+    Usage:
+        apptainer exec viral_integration.sif python /app/viral_integration.py --help
+        apptainer exec viral_integration.sif pbsim --help
+        apptainer exec viral_integration.sif picard -h
+
+%post
+    # Set non-interactive mode
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Update and install basic dependencies
+    apt-get update && apt-get install -y \
+        wget \
+        curl \
+        git \
+        build-essential \
+        cmake \
+        zlib1g-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libncurses5-dev \
+        python3.10 \
+        python3-pip \
+        autoconf \
+        automake \
+        libtool \
+        openjdk-17-jre-headless \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Create symbolic links for python
+    ln -sf /usr/bin/python3.10 /usr/bin/python3
+    ln -sf /usr/bin/python3.10 /usr/bin/python
+
+    # Install Python packages
+    pip3 install --no-cache-dir numpy pandas pysam xlsxwriter
+
+    # Install samtools
+    cd /tmp
+    wget https://github.com/samtools/samtools/releases/download/1.22.1/samtools-1.22.1.tar.bz2
+    tar -xjf samtools-1.22.1.tar.bz2
+    cd samtools-1.22.1
+    ./configure --prefix=/usr/local
+    make -j$(nproc)
+    make install
+    cd /tmp && rm -rf samtools-1.22.1*
+
+    # Install htslib (required for some tools)
+    cd /tmp
+    wget https://github.com/samtools/htslib/releases/download/1.22.1/htslib-1.22.1.tar.bz2
+    tar -xjf htslib-1.22.1.tar.bz2
+    cd htslib-1.22.1
+    ./configure --prefix=/usr/local
+    make -j$(nproc)
+    make install
+    cd /tmp && rm -rf htslib-1.22.1*
+
+    # Install bedtools
+    cd /tmp
+    wget https://github.com/arq5x/bedtools2/releases/download/v2.31.1/bedtools-2.31.1.tar.gz
+    tar -xzf bedtools-2.31.1.tar.gz
+    cd bedtools2
+    make -j$(nproc)
+    make install
+    cd /tmp && rm -rf bedtools2*
+
+    # Install pigz
+    cd /tmp
+    wget https://zlib.net/pigz/pigz-2.8.tar.gz
+    tar -xzf pigz-2.8.tar.gz
+    cd pigz-2.8
+    make
+    cp pigz /user/local/bin
+    cd /tmp && rm -rf pigz-*
+
+    # Install minimap2
+    cd /tmp
+    wget https://github.com/lh3/minimap2/releases/download/v2.30/minimap2-2.30_x64-linux.tar.bz2
+    tar -xvf minimap2-2.30_x64-linux.tar.bz2
+    cp minimap2-2.30_x64-linux/minimap2 /usr/local/bin
+    rm -rf minimap2*
+
+    # Install seqtk
+    cd /tmp
+    wget https://github.com/lh3/seqtk/archive/refs/tags/v1.5.tar.gz
+    tar -xvf v1.5.tar.gz
+    cd seqtk-1.5/; make
+    cp seqtk /usr/local/bin
+    cd /tmp; rm -rf v1.5*; rm -rf seqtk-1.5
+
+    # Install Picard tools
+    cd /opt
+    wget https://github.com/broadinstitute/picard/releases/download/3.3.0/picard.jar
+    echo '#!/bin/bash' > /usr/local/bin/picard
+    echo 'java -jar /opt/picard.jar "$@"' >> /usr/local/bin/picard
+    chmod +x /usr/local/bin/picard
+
+    # Install fastplong (trimming/QC)
+    cd /usr/local/bin
+    wget http://opengene.org/fastplong/fastplong
+    chmod a+x ./fastplong
+
+    # Install pbsim3
+    cd /opt
+    git clone https://github.com/yukiteruono/pbsim3.git
+    cd pbsim3
+    autoreconf -i
+    ./configure --prefix=/usr/local
+    make -j$(nproc)
+    make install
+
+    # Download pbsim3 models
+    mkdir -p /opt/pbsim3/data
+    cd /opt/pbsim3/data
+    wget https://github.com/yukiteruono/pbsim3/raw/master/data/QSHMM-RSII.model
+    # wget https://github.com/yukiteruono/pbsim3/raw/master/data/ERRHMM-Sequel.model
+
+    # Install PacBio CCS (Circular Consensus Sequencing)
+    cd /tmp
+    wget https://github.com/PacificBiosciences/ccs/releases/download/v6.4.0/ccs.tar.gz
+    tar -xzf ccs.tar.gz
+    cp ccs /usr/local/bin/
+    chmod +x /usr/local/bin/ccs
+    rm -rf ccs*
+
+    # Create app directory
+    mkdir -p /app
+
+    # Cleanup
+    apt-get clean
+
+%environment
+    export LC_ALL=C
+    export PATH=/usr/local/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+    export PBSIM_MODEL_DIR=/opt/pbsim3/data
+    export PICARD_JAR=/opt/picard.jar
+
+%runscript
+    exec "$@"
+
+%test
+    # Test installations
+    echo "Testing installations..."
+    python --version
+    samtools --version
+    pbsim --version
+    ccs --version
+    picard CollectAlignmentSummaryMetrics --version 2>&1 | head -n 1
+    echo "All tests passed!"

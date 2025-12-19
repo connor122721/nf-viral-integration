@@ -2,10 +2,9 @@
 
 /*
 ========================================================================================
-    VIRAL INTEGRATION SIMULATION PIPELINE - Lightweight Version
+    Viral Integration Detection Pipeline
 ========================================================================================
-    Simple pipeline: Generate integrations -> Simulate reads with pbsim3
-    Version: 1.0.0
+    Version: 1.0.0; By: Connor S. Murray, PhD
 ========================================================================================
 */
 nextflow.enable.dsl = 2
@@ -66,20 +65,6 @@ if (params.help) {
 }
 
 // ========================================================================================
-// VALIDATE PARAMETERS
-// ========================================================================================
-
-if (!params.host_genome) {
-    log.error "ERROR: --host_genome is required"
-    exit 1
-}
-
-if (!params.viral_genome) {
-    log.error "ERROR: --viral_genome is required"
-    exit 1
-}
-
-// ========================================================================================
 // PRINT PARAMETER SUMMARY
 // ========================================================================================
 
@@ -106,7 +91,7 @@ process GENERATE_INTEGRATIONS {
     publishDir "${params.outdir}/integrations", mode: 'copy'
     
     //container 'docker://python:3.10'
-    container '/work/c0murr09/viral_integration.sif'
+    container '/work/c0murr09/viral_int2.sif'
     
     input:
         path host_genome
@@ -136,7 +121,7 @@ process GENERATE_INTEGRATIONS {
 process SIMULATE_READS {
     publishDir "${params.outdir}/simulated_reads", mode: 'copy'
     //container 'docker://ajslee/pbsim3:3.0.5'
-    container '/work/c0murr09/viral_integration.sif'
+    container '/work/c0murr09/viral_int2.sif'
 
     input:
         path chimeric_fasta
@@ -170,33 +155,138 @@ process SIMULATE_READS {
         """
 }
 
-// Identify integration sites
-process MAPPING_VIRAL_GENOME {
-    publishDir "${params.outdir}/viral_reads", mode: 'copy'
-    
-    container '/work/c0murr09/viral_int.sif'
+// Convert BAM to FASTQ
+process BAM_TO_FASTQ {
+    publishDir "${params.outdir}/converted_fastq", mode: 'copy'
+
+    container '/work/c0murr09/viral_int2.sif'
 
     input:
-        path ccs_bam
-        path viral_genome_i
-    
+        path bam_file
+
     output:
-        path "simulated_*.bam", emit: bam
-        path "simulated.ccs.bam", emit: ccs
-    
+        path "*.fastq.gz", emit: fastq
+
     script:
+        """
+        samtools fastq \\
+            -@ ${params.threads} \\
+            ${bam_file} > \\
+            ${bam_file.baseName}.fastq
+        
+        # Fast compression
+        pigz \\
+            -p ${params.threads} \\
+            ${bam_file.baseName}.fastq
+        """
+}
+
+// Trim adapters with fastp
+process FASTPLONG_TRIM {
+    tag "${reads.baseName}"
+    publishDir "${params.outdir}/trimmed_reads", mode: 'copy'
+
+    container '/work/c0murr09/viral_int2.sif'
+
+    input:
+        path reads
+
+    output:
+        path "*_trimmed.fastq.gz", emit: fastq
+        path "*.html", emit: html
+        path "*.json", emit: json
+
+    script:
+        def output_prefix = reads.baseName.replaceAll(/\.fastq$/, "")
+        def adapter_arg = params.fastp_adapters ? "--adapter_fasta ${params.fastp_adapters}" : ""
+        """
+        fastplong \\
+            -i ${reads} \\
+            -o ${output_prefix}_trimmed.fastq.gz \\
+            --html ${output_prefix}_fastp.html \\
+            --json ${output_prefix}_fastp.json \\
+            --thread ${params.threads} \\
+            --qualified_quality_phred ${params.fastp_qual} \\
+            --length_required ${params.fastp_min_length} \\
+            ${adapter_arg}
+        """
+}
+
+// Map reads to viral genome
+process MAPPING_VIRAL_GENOME {
+    tag "${viral_genome.baseName}"
+    publishDir "${params.outdir}/viral_mapping/${viral_genome.baseName}", mode: 'copy'
+
+    container '/work/c0murr09/viral_int2.sif'
+
+    input:
+        path reads
+        each path(viral_genome)
+
+    output:
+        path "*.sam", emit: sam
+        path "*.bam", emit: bam
+
+    script:
+        def input_reads = reads.name.endsWith('.bam') ? "<(samtools fastq -@ ${params.threads} ${reads})" : reads
+        def output_prefix = "${reads.baseName}_vs_${viral_genome.baseName}"
         """
         # Mapping to Viral Genome
         minimap2 \\
-            --strategy wgs \\
-            --method qshmm \\
-            --qshmm ${params.pbsim_model} \\
-            --depth ${params.depth} \\
-            --genome ${chimeric_fasta} \\
-            --prefix simulated \\
-            --pass-num=5 \\
-            --length-mean ${params.length_mean} \\
-            --accuracy-mean ${params.accuracy_mean}
+            -t ${params.threads} \\
+            -m 0 \\
+            -Y \\
+            -ax map-hifi \\
+            ${viral_genome} \\
+            ${input_reads} > \\
+            ${output_prefix}.sam
+
+        # Convert to BAM and sort (removes secondary and unmapped alignments)
+        samtools view \\
+            -@ ${params.threads} \\
+            -h \\
+            -S \\
+            -F 260,0x904 \\
+            -b ${output_prefix}.sam | \\
+            samtools sort \\
+            -@ ${params.threads} \\
+            -o ${output_prefix}.bam
+
+        # Index bam
+        samtools index ${output_prefix}.bam
+        """
+}
+
+// Remove PCR duplicates with Picard
+process MARK_DUPLICATES {
+    tag "${bam.baseName}"
+    publishDir "${params.outdir}/dedup_bams", mode: 'copy'
+
+    container '/work/c0murr09/viral_int2.sif'
+
+    input:
+        path bam
+
+    output:
+        path "*_dedup.bam", emit: bam
+        path "*_dedup.bam.bai", emit: bai
+        path "*_metrics.txt", emit: metrics
+
+    script:
+        def output_prefix = bam.baseName.replaceAll(/\.bam$/, "")
+        """
+        picard MarkDuplicates \\
+            I=${bam} \\
+            O=${output_prefix}_dedup.bam \\
+            M=${output_prefix}_metrics.txt \\
+            REMOVE_DUPLICATES=true \\
+            ASSUME_SORT_ORDER=coordinate \\
+            CREATE_INDEX=true \\
+            VALIDATION_STRINGENCY=LENIENT \\
+            MAX_RECORDS_IN_RAM=${params.picard_max_records}
+
+        # Index the deduplicated BAM
+        samtools index ${output_prefix}_dedup.bam
         """
 }
 
@@ -208,15 +298,50 @@ workflow {
     // Input channels
     host_genome_ch = Channel.fromPath(params.host_genome)
     viral_genome_ch = Channel.fromPath(params.viral_genome)
+    viral_genomes_ch = Channel.fromPath(params.viral_genomes)
     script_ch = Channel.fromPath("$projectDir/bin/viral_integration.py")
-    
-    // Generate integrations
-    GENERATE_INTEGRATIONS(host_genome_ch,
-                          viral_genome_ch,
-                          script_ch)
-    
-    // Simulate reads with pbsim3
-    SIMULATE_READS(GENERATE_INTEGRATIONS.out.fasta)
+
+    // Decide whether to simulate or use patient samples
+    if (params.patient_dir) {
+        // Search for BAM and FASTQ files in the patient directory
+        bam_files_ch = Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false)
+        fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.fastq.gz", checkIfExists: false)
+
+        // Convert BAMs to FASTQs
+        BAM_TO_FASTQ(bam_files_ch)
+
+        // Combine converted FASTQs with existing FASTQ files
+        input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
+
+    } else if (params.patient_bam) {
+        // Legacy: single patient BAM file - convert to FASTQ first
+        patient_bam_ch = Channel.fromPath(params.patient_bam)
+        BAM_TO_FASTQ(patient_bam_ch)
+        input_reads_ch = BAM_TO_FASTQ.out.fastq
+
+    } else {
+        // Generate integrations
+        GENERATE_INTEGRATIONS(host_genome_ch,
+                              viral_genome_ch,
+                              script_ch)
+
+        // Simulate reads with pbsim3
+        SIMULATE_READS(GENERATE_INTEGRATIONS.out.fasta)
+
+        // Convert simulated BAM to FASTQ
+        BAM_TO_FASTQ(SIMULATE_READS.out.ccs)
+        input_reads_ch = BAM_TO_FASTQ.out.fastq
+    }
+
+    // Trim adapters with fastp
+    FASTPLONG_TRIM(input_reads_ch)
+
+    // Map to all viral genomes in parallel (each genome processed separately)
+    MAPPING_VIRAL_GENOME(FASTPLONG_TRIM.out.fastq,
+                         viral_genomes_ch)
+
+    // Remove PCR duplicates from mapped BAMs
+    MARK_DUPLICATES(MAPPING_VIRAL_GENOME.out.bam)
 
 }
 

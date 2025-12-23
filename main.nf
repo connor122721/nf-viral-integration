@@ -224,7 +224,7 @@ process MAPPING_VIRAL_GENOME {
         each path(viral_genome)
 
     output:
-        path "*.sam", emit: sam
+        // path "*.sam", emit: sam
         path "*.bam", emit: bam
 
     script:

@@ -31,6 +31,8 @@ From: ubuntu:22.04
         git \
         build-essential \
         cmake \
+        perl \
+        cpanminus \
         zlib1g-dev \
         libbz2-dev \
         liblzma-dev \
@@ -44,6 +46,9 @@ From: ubuntu:22.04
         libtool \
         openjdk-17-jre-headless \
         && rm -rf /var/lib/apt/lists/*
+    
+    # Install Perl module Getopt::Long
+    cpanm Getopt::Long
 
     # Create symbolic links for python
     ln -sf /usr/bin/python3.10 /usr/bin/python3
@@ -87,7 +92,7 @@ From: ubuntu:22.04
     tar -xzf pigz-2.8.tar.gz
     cd pigz-2.8
     make
-    cp pigz /user/local/bin
+    cp pigz /usr/local/bin
     cd /tmp && rm -rf pigz-*
 
     # Install minimap2

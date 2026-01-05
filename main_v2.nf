@@ -2,11 +2,16 @@
 
 /*
 ========================================================================================
-    HIV SMRTCap Integration Detection Pipeline
+    Viral Integration Detection Pipeline
 ========================================================================================
-    Version: 2.0.0
+    Version: 2.2.0
     By: Connor S. Murray, PhD
     Based on: SMRTCap methodology (Smith Lab, University of Louisville)
+
+    Workflow:
+      1. Select best viral reference via competitive mapping
+      2. Mask viral-aligned regions in reads
+      3. Identify integration sites in human genome
 ========================================================================================
 */
 nextflow.enable.dsl = 2
@@ -18,17 +23,15 @@ nextflow.enable.dsl = 2
 def helpMessage() {
     log.info"""
     ========================================================================================
-    HIV SMRTCap INTEGRATION DETECTION PIPELINE
+    VIRAL INTEGRATION DETECTION PIPELINE v2.2.0
     ========================================================================================
-    
+
     Usage:
-        nextflow run viral_integration_smrt.nf --host_genome hg38.fa --viral_genome HIV1.fa
-    
+        nextflow run main_v2.nf --host_genome GRCh38.fa --viral_genomes "panel/*.fa"
+
     Required Arguments:
         --host_genome           Path to host genome FASTA
-        --viral_genomes         Glob pattern for multiple viral genomes (e.g., "references/HIV*.fa")
-                                OR
-        --viral_genome          Single viral genome FASTA (legacy support)
+        --viral_genomes         Glob pattern for viral reference panel (e.g., "hiv_refs/*.fa")
     
     Input Options (choose one):
         --patient_dir           Directory containing patient BAM/FASTQ files
@@ -44,15 +47,10 @@ def helpMessage() {
         --length_mean           Mean read length [default: 15000]
         --accuracy_mean         Mean accuracy [default: 0.99]
     
-    SMRTCap Parameters:
-        --max_iterations        Maximum iterative mapping cycles [default: 50]
+    Masking/Mapping Parameters:
         --trim_begin            Bases to trim from read start [default: 0]
         --trim_end              Bases to trim from read end [default: 0]
-    
-    Quality Filtering:
-        --min_mapq              Minimum mapping quality [default: 0]
-        --remove_secondary      Remove secondary alignments [default: true]
-        --remove_supplementary  Remove supplementary alignments [default: true]
+        --min_mapq              Minimum mapping quality [default: 20]
     
     Output:
         --outdir                Output directory [default: ./output]
@@ -94,7 +92,6 @@ log.info "HIV SMRTCap INTEGRATION DETECTION PIPELINE"
 log.info "========================================================================================"
 log.info "Host genome       : ${params.host_genome}"
 log.info "Viral genomes     : ${params.viral_genomes ?: params.viral_genome}"
-log.info "Max iterations    : ${params.max_iterations}"
 log.info "Min MAPQ          : ${params.min_mapq}"
 log.info "Output directory  : ${params.outdir}"
 if (!params.patient_dir && !params.patient_bam && !params.patient_fastq) {
@@ -141,7 +138,7 @@ process GENERATE_INTEGRATIONS {
 
 // Simulate HiFi reads 
 process SIMULATE_READS {
-    publishDir "${params.outdir}/simulated_reads", mode: 'copy'
+    publishDir "${params.outdir}/simulated_reads", mode: 'link'
     container params.container
 
     input:
@@ -179,7 +176,7 @@ process SIMULATE_READS {
 // Convert BAM to FASTQ
 process BAM_TO_FASTQ {
     tag "${bam_file.baseName}"
-    publishDir "${params.outdir}/converted_fastq", mode: 'copy'
+    publishDir "${params.outdir}/converted_fastq", mode: 'link'
 
     container params.container
 
@@ -187,7 +184,7 @@ process BAM_TO_FASTQ {
         path bam_file
 
     output:
-        path "*.fastq", emit: fastq
+        path "*.fastq.gz", emit: fastq
 
     script:
         """
@@ -195,13 +192,15 @@ process BAM_TO_FASTQ {
             -@ ${params.threads} \\
             ${bam_file} > \\
             ${bam_file.baseName}.fastq
+
+        pigz ${bam_file.baseName}.fastq
         """
 }
 
 // Trim adapters with seqtk
 process TRIM_READS {
     tag "${reads.baseName}"
-    publishDir "${params.outdir}/trimmed_reads", mode: 'copy'
+    publishDir "${params.outdir}/trimmed_reads", mode: 'link'
 
     container params.container
 
@@ -209,368 +208,121 @@ process TRIM_READS {
         path reads
 
     output:
-        path "*_trimmed.fastq", emit: fastq
+        path "*.trimmed.fastq.gz", emit: fastq
 
     script:
-        def output_name = "${reads.baseName}_trimmed.fastq"
+        def trim_start = params.trim_begin ?: 0
+        def trim_end = params.trim_end ?: 0
         """
-        # Uncompress if needed
-        if [[ ${reads} == *.gz ]]; then
-            zcat ${reads} | seqtk trimfq -b ${params.trim_begin} -e ${params.trim_end} - > ${output_name}
-        else
-            seqtk trimfq -b ${params.trim_begin} -e ${params.trim_end} ${reads} > ${output_name}
-        fi
+        seqtk trimfq -b ${trim_start} -e ${trim_end} \\
+            ${reads} > ${reads.baseName}.trimmed.fastq
+
+        pigz ${reads.baseName}.trimmed.fastq
         """
 }
 
-// Initial alignment to all viral references for best genome selection
+// Map reads to each viral reference genome (competitive mapping)
 process MULTI_REFERENCE_MAPPING {
-    tag "${reads.baseName}_vs_${viral_genome.baseName}"
-    publishDir "${params.outdir}/multi_reference_mapping", mode: 'copy'
+    tag "${sample_id}_vs_${viral_genome.baseName}"
+    publishDir "${params.outdir}/01_reference_selection/${sample_id}", mode: 'link'
 
     container params.container
 
     input:
-        path reads
+        tuple val(sample_id), path(reads)
         each path(viral_genome)
 
     output:
-        tuple path(reads), path(viral_genome), path("*.sam"), path("*.stats.txt"), emit: results
+        tuple val(sample_id), path(viral_genome), path("*.sam"), path("*.stats.txt"), emit: results
 
     script:
-        def prefix = "${reads.baseName}_vs_${viral_genome.baseName}"
+        def ref_name = viral_genome.baseName
         """
-        # Map to this viral reference
-        minimap2 \\
-            -t ${params.threads} \\
-            -m 0 \\
-            -Y \\
-            -ax map-hifi \\
-            ${viral_genome} \\
-            ${reads} > ${prefix}.sam
-
-        # Filter for primary alignments only
-        samtools view \\
-            -h \\
-            -F 0x904 \\
-            ${prefix}.sam > ${prefix}.filtered.sam
-
-        # Generate detailed statistics
-        echo "=== ${viral_genome.baseName} Mapping Statistics ===" > ${prefix}.stats.txt
-        samtools flagstat ${prefix}.filtered.sam >> ${prefix}.stats.txt
-        echo "" >> ${prefix}.stats.txt
-        echo "Mapped reads:" >> ${prefix}.stats.txt
-        samtools view -c -F 4 ${prefix}.filtered.sam >> ${prefix}.stats.txt
-        echo "" >> ${prefix}.stats.txt
-        echo "MAPQ statistics:" >> ${prefix}.stats.txt
-        samtools view ${prefix}.filtered.sam | awk '{print \$5}' | \\
-            awk '{sum+=\$1; sumsq+=\$1*\$1; count++} END {
-                if(count>0) {
-                    mean=sum/count;
-                    print "Mean_MAPQ: " mean;
-                    print "Mapped_reads: " count;
-                    print "Total_alignment_score: " sum;
-                }
-            }' >> ${prefix}.stats.txt
-        
-        # Move filtered sam to output
-        mv ${prefix}.filtered.sam ${prefix}.sam
-        """
-}
-
-// Select best viral reference genome based on mapping statistics
-process SELECT_BEST_REFERENCE {
-    publishDir "${params.outdir}/reference_selection", mode: 'copy'
-
-    container params.container
-
-    input:
-        path stats_files
-
-    output:
-        path "best_reference.txt", emit: best_ref
-        path "best_reference.fa", emit: best_ref_fa
-        path "mapping_comparison.txt", emit: comparison
-
-    script:
-        """
-        #!/usr/bin/env python3
-        import re
-        from pathlib import Path
-        import shutil
-
-        stats_files = """${stats_files}""".split()
-        results = {}
-        ref_paths = {}
-
-        for stats_file in stats_files:
-            # Parse stats file
-            genome_name = Path(stats_file).stem.replace('_stats', '')
-            # Extract reference name from filename pattern: reads_vs_refname
-            parts = genome_name.split('_vs_')
-            if len(parts) >= 2:
-                ref_name = parts[-1]
-            else:
-                ref_name = genome_name
-            
-            with open(stats_file) as f:
-                content = f.read()
-            
-            # Extract mapped reads count
-            mapped_match = re.search(r'Mapped_reads:\\s*(\\d+)', content)
-            mapq_match = re.search(r'Mean_MAPQ:\\s*([\\d.]+)', content)
-            score_match = re.search(r'Total_alignment_score:\\s*([\\d.]+)', content)
-            
-            if mapped_match and mapq_match and score_match:
-                mapped_reads = int(mapped_match.group(1))
-                mean_mapq = float(mapq_match.group(1))
-                total_score = float(score_match.group(1))
-                
-                # Composite score: prioritize mapped reads, then quality
-                score = (mapped_reads * 1000) + mean_mapq
-                
-                results[ref_name] = {
-                    'mapped': mapped_reads,
-                    'mapq': mean_mapq,
-                    'score': score,
-                    'total_score': total_score
-                }
-
-        # Write comparison
-        with open('mapping_comparison.txt', 'w') as f:
-            f.write("Reference\\tMapped_Reads\\tMean_MAPQ\\tComposite_Score\\n")
-            for ref, stats in sorted(results.items(), key=lambda x: x[1]['score'], reverse=True):
-                f.write(f"{ref}\\t{stats['mapped']}\\t{stats['mapq']:.2f}\\t{stats['score']:.2f}\\n")
-
-        # Select best
-        if results:
-            best = max(results.items(), key=lambda x: x[1]['score'])
-            best_ref_name = best[0]
-            
-            with open('best_reference.txt', 'w') as f:
-                f.write(best_ref_name)
-            
-            # Find and copy the best reference file
-            # Look for the reference file in the work directory
-            import glob
-            possible_refs = glob.glob(f"../*/{best_ref_name}.fa") + glob.glob(f"../*/{best_ref_name}.fasta")
-            if possible_refs:
-                shutil.copy(possible_refs[0], 'best_reference.fa')
-            else:
-                # If not found, create a placeholder
-                with open('best_reference.fa', 'w') as f:
-                    f.write(f"# Best reference: {best_ref_name}\\n")
-                    f.write("# Original file not found in work directory\\n")
-            
-            print(f"\\nBest reference selected: {best_ref_name}")
-            print(f"  Mapped reads: {best[1]['mapped']}")
-            print(f"  Mean MAPQ: {best[1]['mapq']:.2f}")
-            print(f"  Composite score: {best[1]['score']:.2f}")
-        else:
-            with open('best_reference.txt', 'w') as f:
-                f.write("NONE")
-            with open('best_reference.fa', 'w') as f:
-                f.write("# No suitable reference found\\n")
-        """
-}
-
-// Get the actual best reference file path
-process GET_BEST_REFERENCE_FILE {
-    container params.container
-
-    input:
-        path best_ref_name
-        path all_viral_refs
-
-    output:
-        path "selected_reference.fa", emit: reference
-
-    script:
-        """
-        #!/bin/bash
-        BEST_NAME=\$(cat ${best_ref_name})
-        echo "Looking for reference matching: \${BEST_NAME}"
-        
-        # Find the matching reference file
-        FOUND=0
-        for ref_file in ${all_viral_refs}; do
-            ref_basename=\$(basename \$ref_file .fa)
-            ref_basename=\$(basename \$ref_basename .fasta)
-            echo "Checking: \$ref_file (basename: \$ref_basename)"
-            
-            if [[ "\$ref_basename" == *"\${BEST_NAME}"* ]] || [[ "\${BEST_NAME}" == *"\$ref_basename"* ]]; then
-                echo "Match found: \$ref_file"
-                cp \$ref_file selected_reference.fa
-                FOUND=1
-                break
-            fi
-        done
-        
-        if [ \$FOUND -eq 0 ]; then
-            echo "ERROR: Could not find reference file for \${BEST_NAME}"
-            echo "Available files: ${all_viral_refs}"
-            exit 1
-        fi
-        """
-}
-
-// Initial alignment to viral reference
-process INITIAL_VIRAL_MAPPING {
-    tag "${reads.baseName}"
-    publishDir "${params.outdir}/initial_viral_mapping", mode: 'copy'
-
-    container params.container
-
-    input:
-        path reads
-        path viral_genome
-
-    output:
-        tuple val(1), path("*.initial.sam"), emit: sam
-        path "*.stats.txt", emit: stats
-
-    script:
-        def prefix = reads.baseName
-        """
-        # Initial alignment to viral reference
-        minimap2 \\
-            -t ${params.threads} \\
-            -m 0 \\
-            -Y \\
-            -ax map-hifi \\
-            ${viral_genome} \\
-            ${reads} > ${prefix}.initial.1.sam
-
-        # Generate statistics
-        echo "=== Initial Viral Mapping Statistics ===" > ${prefix}.initial.stats.txt
-        samtools flagstat ${prefix}.initial.1.sam >> ${prefix}.initial.stats.txt
-        echo "Mapped reads:" >> ${prefix}.initial.stats.txt
-        samtools view -c -F 4 ${prefix}.initial.1.sam >> ${prefix}.initial.stats.txt
-        """
-}
-
-// Filter alignments (remove secondary, supplementary, unmapped)
-process FILTER_ALIGNMENTS {
-    tag "iteration_${iteration}"
-    publishDir "${params.outdir}/filtered_alignments/iteration_${iteration}", mode: 'copy'
-
-    container params.container
-
-    input:
-        tuple val(iteration), path(sam_file)
-
-    output:
-        tuple val(iteration), path("*_filtered.sam"), emit: sam
-        path "*.stats.txt", emit: stats
-
-    script:
-        def prefix = sam_file.baseName.replaceAll(/\.initial/, "")
-        def flags = "260"  // unmapped + secondary
-        if (params.remove_supplementary) {
-            flags = "0x904"  // unmapped + secondary + supplementary
-        }
-        """
-        # Filter alignments
-        samtools view \\
-            -h \\
-            -S \\
-            -F ${flags} \\
-            ${sam_file} > ${prefix}_filtered.sam
-
-        # Statistics
-        echo "=== Iteration ${iteration} Filtered Statistics ===" > ${prefix}_filtered.stats.txt
-        samtools flagstat ${prefix}_filtered.sam >> ${prefix}_filtered.stats.txt
-        echo "Remaining mapped reads:" >> ${prefix}_filtered.stats.txt
-        samtools view -c -F 4 ${prefix}_filtered.sam >> ${prefix}_filtered.stats.txt
-        """
-}
-
-// Mask viral regions (replace with N's)
-process MASK_VIRAL_REGIONS {
-    tag "iteration_${iteration}"
-    publishDir "${params.outdir}/masked_sequences/iteration_${iteration}", mode: 'copy'
-
-    container params.container
-
-    input:
-        tuple val(iteration), path(sam_file)
-        path mask_script
-
-    output:
-        tuple val(iteration), path("*.masked.fa"), emit: fasta
-        val iteration, emit: iteration
-
-    script:
-        def prefix = sam_file.baseName.replaceAll(/_filtered/, "")
-        """
-        # Mask viral-aligned regions
-        python ${mask_script} ${sam_file} > ${prefix}.masked.fa
-        """
-}
-
-// Iterative mapping to find all viral sequences
-process ITERATIVE_VIRAL_MAPPING {
-    tag "iteration_${iteration}"
-    publishDir "${params.outdir}/iterative_mapping/iteration_${iteration}", mode: 'copy'
-
-    container params.container
-
-    input:
-        tuple val(iteration), path(masked_fasta)
-        path viral_genome
-        path pick_reads_script
-
-    output:
-        tuple val(iteration), path("*.picked.sam"), path(masked_fasta), emit: results
-        path "*.stats.txt", emit: stats
-
-    script:
-        def prefix = masked_fasta.baseName.replaceAll(/\.masked/, "")
-        def next_iter = iteration + 1
-        """
-        # Map masked sequences to viral reference
+        # Map reads to this viral reference
         minimap2 \\
             -t ${params.threads} \\
             -Y \\
             -p 0 \\
             -N 10000 \\
+            --sam-hit-only \\
+            --secondary=yes \\
             -ax map-hifi \\
             ${viral_genome} \\
-            ${masked_fasta} > ${prefix}.iter${next_iter}.initial.sam
+            ${reads} > ${sample_id}_vs_${ref_name}.sam
+        
+        # Remove PCR/artificial duplicates
+        picard MarkDuplicates \\
+            I=${sample_id}_vs_${ref_name}.sam \\
+            O=${sample_id}_vs_${ref_name}.sam \\
+            M=${output_prefix}_metrics.txt \\
+            REMOVE_DUPLICATES=true \\
+            ASSUME_SORT_ORDER=coordinate \\
+            CREATE_INDEX=true \\
+            VALIDATION_STRINGENCY=LENIENT \\
+            MAX_RECORDS_IN_RAM=${params.picard_max_records}
 
-        # Pick reads for next iteration
-        # Note: This would use pick_reads.py from the original pipeline
-        # For now, we'll filter the sam file
-        samtools view \\
-            -h \\
-            -S \\
-            -F 0x904 \\
-            ${prefix}.iter${next_iter}.initial.sam > ${prefix}.iter${next_iter}.picked.sam
-
-        # Statistics
-        echo "=== Iteration ${next_iter} Statistics ===" > ${prefix}.iter${next_iter}.stats.txt
-        samtools flagstat ${prefix}.iter${next_iter}.picked.sam >> ${prefix}.iter${next_iter}.stats.txt
-        echo "New mapped reads:" >> ${prefix}.iter${next_iter}.stats.txt
-        samtools view -c -F 4 ${prefix}.iter${next_iter}.picked.sam >> ${prefix}.iter${next_iter}.stats.txt
+        # Generate mapping statistics
+        samtools flagstat ${sample_id}_vs_${ref_name}.sam > ${sample_id}_vs_${ref_name}.stats.txt
         """
 }
 
-// Check convergence
-process CHECK_CONVERGENCE {
-    tag "iteration_${iteration}"
+// Select best viral reference based on alignment metrics
+process SELECT_BEST_REFERENCE {
+    tag "${sample_id}"
+    publishDir "${params.outdir}/01_reference_selection/${sample_id}", mode: 'link'
 
     container params.container
 
     input:
-        tuple val(iteration), path(sam_file), path(masked_fasta)
+        tuple val(sample_id), path(viral_genomes), path(sam_files), path(stats_files)
 
     output:
-        tuple val(iteration), path(sam_file), path(masked_fasta), stdout, emit: results
+        tuple val(sample_id), path("*best_reference.txt"), emit: best_ref_name
+        tuple val(sample_id), path("*best_reference.fa"), emit: best_ref_fa
+        tuple val(sample_id), path("*best_reference.sam"), emit: best_sam
+        path "*mapping_comparison.txt", emit: comparison
+        path "*detailed_metrics.txt", emit: metrics
+
+    script:
+        def sam_list = sam_files.collect{ it }.join(' ')
+        def stats_list = stats_files.collect{ it }.join(' ')
+        def genome_list = viral_genomes.collect{ it }.join(' ')
+        """
+        # Select best reference and get its name
+        python ${projectDir}/bin/select_best_reference.py \\
+            --sam-files ${sam_list} \\
+            --stats-files ${stats_list} \\
+            --viral-genomes ${genome_list} \\
+            --output-best ${sample_id}_best_reference.txt \\
+            --output-fa ${sample_id}_best_reference.fa \\
+            --output-comparison ${sample_id}_mapping_comparison.txt \\
+            --output-detailed ${sample_id}_detailed_metrics.txt
+
+        # Get the best reference name (first line of best_reference.txt)
+        BEST_REF=\$(head -n1 ${sample_id}_best_reference.txt)
+        
+        # Copy the corresponding SAM file
+        cp ${sample_id}_vs_\${BEST_REF}.sam ${sample_id}_vs_\${BEST_REF}_best_reference.sam
+        """
+}
+
+// Mask viral-aligned regions from reads
+process MASK_VIRAL_REGIONS {
+    tag "${sample_id}"
+    publishDir "${params.outdir}/02_masked_reads/${sample_id}", mode: 'link'
+
+    container params.container
+
+    input:
+        tuple val(sample_id), val(iteration), path(sam_file)
+
+    output:
+        tuple val(sample_id), val(iteration), path("*.masked.fa"), emit: fasta
 
     script:
         """
-        # Count mapped reads
-        samtools view -c -F 4 ${sam_file}
+        # Mask viral-aligned regions
+        python ${projectDir}/bin/mask.py ${sam_file} > ${sample_id}.masked.fa
         """
 }
 
@@ -578,213 +330,149 @@ process CHECK_CONVERGENCE {
 // WORKFLOW
 // ========================================================================================
 
-// Extract processes from external nf file
-include { UNMASK_SEQUENCES as UNMASK_SEQUENCES } from './bin/genomic_processes.nf'
-include { UNMASK_SEQUENCES as UNMASK_SEQUENCES_FIN } from './bin/genomic_processes.nf'
-include { EXTRACT_FLANKS as EXTRACT_FLANKS } from './bin/genomic_processes.nf'
-include { EXTRACT_FLANKS as EXTRACT_FLANKS_FIN } from './bin/genomic_processes.nf'
-include { MAP_FLANKS_TO_HOST as MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'  
-include { MAP_FLANKS_TO_HOST as MAP_FLANKS_TO_HOST_FIN } from './bin/genomic_processes.nf' 
-include { CONFIRM_HOST_ALIGNMENTS as CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
-include { CONFIRM_HOST_ALIGNMENTS as CONFIRM_HOST_ALIGNMENTS_FIN } from './bin/genomic_processes.nf'
-include { COMBINE_RESULTS as COMBINE_RESULTS } from './bin/genomic_processes.nf'
-include { COMBINE_RESULTS as COMBINE_RESULTS_FIN } from './bin/genomic_processes.nf'
+// Import processes for integration site detection
+include { UNMASK_SEQUENCES } from './bin/genomic_processes.nf'
+include { EXTRACT_FLANKS } from './bin/genomic_processes.nf'
+include { MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'
+include { CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
+include { COMBINE_RESULTS } from './bin/genomic_processes.nf'
 
 workflow {
-    // Input channels
+    // ==================================================================================
+    // SETUP: Input channels and scripts
+    // ==================================================================================
     host_genome_ch = Channel.fromPath(params.host_genome, checkIfExists: true)
-    
-    // Handle viral genome input - support both single and multiple references
-    if (params.viral_genomes) {
-        viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
-        viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
-    } else if (params.viral_genome) {
-        // Legacy support for single viral genome
-        viral_genomes_ch = Channel.fromPath(params.viral_genome, checkIfExists: true)
-        viral_genomes_list = Channel.fromPath(params.viral_genome, checkIfExists: true).collect()
-    } else {
-        error "Please provide either --viral_genomes or --viral_genome"
-    }
-    
-    // Script channels
-    script_dir = "$projectDir/bin"
+    viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
+    viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
+
+    // Script paths
+    script_dir = "${projectDir}/bin"
     integration_script_ch = Channel.fromPath("${script_dir}/viral_integration.py", checkIfExists: true)
-    mask_script_ch = Channel.fromPath("${script_dir}/mask.py", checkIfExists: true)
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
-    pick_reads_script_ch = Channel.fromPath("${script_dir}/pick_reads.py", checkIfExists: true)
     combine_script_ch = Channel.fromPath("${script_dir}/combine_viral.py", checkIfExists: true)
 
-    // Decide whether to simulate or use patient samples
-    if (params.patient_dir) {
-        // Process all BAM and FASTQ files in directory
-        bam_files_ch = Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false)
-        fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
-        
-        // Convert BAMs to FASTQ
-        BAM_TO_FASTQ(bam_files_ch)
-        
-        // Combine all FASTQs
-        input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
-
-    } else if (params.patient_bam) {
-        // Single patient BAM file
-        patient_bam_ch = Channel.fromPath(params.patient_bam, checkIfExists: true)
-        BAM_TO_FASTQ(patient_bam_ch)
-        input_reads_ch = BAM_TO_FASTQ.out.fastq
-
-    } else if (params.patient_fastq) {
-        // Single patient FASTQ file
-        input_reads_ch = Channel.fromPath(params.patient_fastq, checkIfExists: true)
-
+    // ==================================================================================
+    // STEP 0: Prepare input reads (simulation or patient data)
+    // ==================================================================================
+    if (params.patient_dir || params.patient_bam || params.patient_fastq) {
+        // PATIENT DATA MODE
+        if (params.patient_dir) {
+            bam_files_ch = Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false)
+            fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
+            BAM_TO_FASTQ(bam_files_ch)
+            input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
+        } else if (params.patient_bam) {
+            BAM_TO_FASTQ(Channel.fromPath(params.patient_bam, checkIfExists: true))
+            input_reads_ch = BAM_TO_FASTQ.out.fastq
+        } else {
+            input_reads_ch = Channel.fromPath(params.patient_fastq, checkIfExists: true)
+        }
     } else {
-        // SIMULATION MODE - use first viral genome
-        sim_viral_genome_ch = viral_genomes_ch.first()
-        
-        GENERATE_INTEGRATIONS(
-            host_genome_ch,
-            sim_viral_genome_ch,
-            integration_script_ch)
-        
+        // SIMULATION MODE
+        GENERATE_INTEGRATIONS(host_genome_ch, viral_genomes_ch.first(), integration_script_ch)
         SIMULATE_READS(GENERATE_INTEGRATIONS.out.fasta)
         BAM_TO_FASTQ(SIMULATE_READS.out.ccs)
         input_reads_ch = BAM_TO_FASTQ.out.fastq
     }
 
-    // Trim reads
+    // Trim reads and add sample ID
     TRIM_READS(input_reads_ch)
+    trimmed_reads_ch = TRIM_READS.out.fastq
+        .map { reads -> 
+            def sample_id = reads.baseName.replaceAll(/\.trimmed$/, '')
+            tuple(sample_id, reads)
+        }
 
     // ==================================================================================
-    // STEP 1: Multi-reference mapping to select best viral genome
-    // ==================================================================================
-    MULTI_REFERENCE_MAPPING(
-        TRIM_READS.out.fastq,
-        viral_genomes_ch)
-
-    // Collect all mapping statistics
-    all_stats = MULTI_REFERENCE_MAPPING.out.results
-        .map { reads, ref, sam, stats -> stats }
-        .collect()
-
-    // Select best reference based on mapping statistics
-    SELECT_BEST_REFERENCE(all_stats)
-
-    // Get the actual best reference file path
-    GET_BEST_REFERENCE_FILE(
-        SELECT_BEST_REFERENCE.out.best_ref,
-        viral_genomes_list)
-
-    // ==================================================================================
-    // STEP 2: SMRTCap pipeline with selected best reference
+    // STEP 1: Select best viral reference via competitive mapping (PER SAMPLE)
     // ==================================================================================
     
-    // Initial viral mapping with best reference
-    INITIAL_VIRAL_MAPPING(
-        TRIM_READS.out.fastq,
-        GET_BEST_REFERENCE_FILE.out.reference)
+    // Map each sample to all viral references
+    MULTI_REFERENCE_MAPPING(trimmed_reads_ch, viral_genomes_ch)
 
-    // Filter initial alignments
-    FILTER_ALIGNMENTS(INITIAL_VIRAL_MAPPING.out.sam)
-
-    // Mask viral regions
-    MASK_VIRAL_REGIONS(FILTER_ALIGNMENTS.out.sam,
-                       mask_script_ch)
-
-    // Iterative mapping loop with best reference
-    ITERATIVE_VIRAL_MAPPING(
-        MASK_VIRAL_REGIONS.out.fasta,
-        GET_BEST_REFERENCE_FILE.out.reference,
-        pick_reads_script_ch)
-
-    // Check convergence
-    CHECK_CONVERGENCE(ITERATIVE_VIRAL_MAPPING.out.results)
-
-    // Filter for converged iterations
-    converged_ch = CHECK_CONVERGENCE.out.results
-        .map { iter, sam, fa, count -> 
-            [iter, sam, fa, count.trim().toInteger()]
-        }
-        .filter { iter, sam, fa, count -> 
-            count == 0 || iter >= params.max_iterations 
+    // Group results by sample_id
+    grouped_results = MULTI_REFERENCE_MAPPING.out.results
+        .groupTuple(by: 0)  // Group by sample_id
+        .map { sample_id, viral_genomes, sams, stats ->
+            tuple(sample_id, viral_genomes, sams, stats)
         }
 
-    // Get final masked fasta (from last iteration)
-    final_masked_ch = converged_ch
-        .map { iter, sam, fa, count -> fa }
-        .first()
+    // Select best reference for each sample
+    SELECT_BEST_REFERENCE(grouped_results)
 
-    // Unmask sequences
+    // ==================================================================================
+    // STEP 2: Mask viral regions (single pass - non-iterative)
+    // ==================================================================================
+    // Note: We reuse the SAM file from the best reference mapping (already done in Step 1)
+    
+    initial_sam_ch = SELECT_BEST_REFERENCE.out.best_sam
+    
+    // Mask viral regions once
+    mask_input = initial_sam_ch
+        .map { sample_id, sam -> tuple(sample_id, 0, sam) }
+    
+    MASK_VIRAL_REGIONS(mask_input)
+
+    // Extract just the masked FASTA for integration detection
+    final_masked_fa = MASK_VIRAL_REGIONS.out.fasta
+        .map { sample_id, iteration, masked_fa -> tuple(sample_id, masked_fa) }
+
+    // ==================================================================================
+    // STEP 3: Identify integration sites in human genome (PER SAMPLE)
+    // ==================================================================================
+
+    // Extract viral sequences from reads
+    initial_sam_with_masked = initial_sam_ch
+        .join(final_masked_fa)
+        .map { sample_id, sam, masked_fa -> tuple(sample_id, sam, masked_fa) }
+
+    initial_sam_with_masked.view()
+    
     UNMASK_SEQUENCES(
-        FILTER_ALIGNMENTS.out.sam.first().map { iter, sam -> sam },
-        final_masked_ch,
+        initial_sam_with_masked.map { sample_id, sam, masked_fa -> sam },
+        initial_sam_with_masked.map { sample_id, sam, masked_fa -> masked_fa },
         unmask_script_ch)
 
-    // Extract flanks
-    EXTRACT_FLANKS(
-        final_masked_ch,
-        get_flanks_script_ch)
+    // Extract flanking host sequences around masked regions
+    EXTRACT_FLANKS(final_masked_fa.map { sample_id, fa -> fa }, get_flanks_script_ch)
 
-    // Map flanks to host
-    MAP_FLANKS_TO_HOST(
-        EXTRACT_FLANKS.out.fasta,
-        host_genome_ch)
+    // Map flanks to host genome to find integration sites
+    MAP_FLANKS_TO_HOST(EXTRACT_FLANKS.out.fasta, host_genome_ch.first())
 
-    // Confirm with original reads mapped to host
+    // Confirm by mapping original reads to host
     CONFIRM_HOST_ALIGNMENTS(
-        FILTER_ALIGNMENTS.out.sam.first().map { iter, sam -> sam },
-        host_genome_ch)
+        initial_sam_ch.map { sample_id, sam -> sam },
+        host_genome_ch.first())
 
-    // Combine results
+    // Combine results to identify precise integration sites
     COMBINE_RESULTS(
         MAP_FLANKS_TO_HOST.out.sam,
         CONFIRM_HOST_ALIGNMENTS.out.filtered_sam,
         UNMASK_SEQUENCES.out.fasta,
-        combine_script_ch)
-
-    // Unmask sequences
-    UNMASK_SEQUENCES_FIN(
-        FILTER_ALIGNMENTS.out.sam.first().map { iter, sam -> sam },
-        final_masked_ch,
-        unmask_script_ch)
-
-    // Extract flanks
-    EXTRACT_FLANKS_FIN(
-        final_masked_ch,
-        get_flanks_script_ch)
-
-    // Map flanks to host
-    MAP_FLANKS_TO_HOST_FIN(
-        EXTRACT_FLANKS_FIN.out.fasta,
-        host_genome_ch)
-
-    // Confirm with original reads mapped to host
-    CONFIRM_HOST_ALIGNMENTS_FIN(
-        FILTER_ALIGNMENTS.out.sam.first().map { iter, sam -> sam },
-        host_genome_ch)
-
-    // Combine results
-    COMBINE_RESULTS_FIN(
-        MAP_FLANKS_TO_HOST_FIN.out.sam,
-        CONFIRM_HOST_ALIGNMENTS_FIN.out.filtered_sam,
-        UNMASK_SEQUENCES_FIN.out.fasta,
         combine_script_ch)
 }
 
 workflow.onComplete {
     log.info ""
     log.info "========================================================================================"
-    log.info "Pipeline completed!"
+    log.info "VIRAL INTEGRATION PIPELINE COMPLETE"
     log.info "========================================================================================"
     log.info "Status:           ${workflow.success ? 'SUCCESS' : 'FAILED'}"
     log.info "Duration:         ${workflow.duration}"
     log.info "Output directory: ${params.outdir}"
     log.info ""
-    log.info "Results:"
-    log.info "  - Best reference:      ${params.outdir}/reference_selection/best_reference.txt"
-    log.info "  - Reference comparison:${params.outdir}/reference_selection/mapping_comparison.txt"
-    log.info "  - Integration sites:   ${params.outdir}/final_results/*integration_sites.txt"
-    log.info "  - Summary report:      ${params.outdir}/final_results/*integration_summary.txt"
-    log.info "  - Unmasked sequences:  ${params.outdir}/unmasked_sequences/*.unmasked.fa"
-    log.info "  - Host alignments:     ${params.outdir}/confirmed_host_mapping/*.human.bam"
+    log.info "Key Results:"
+    log.info "  01_reference_selection/   - Best viral reference & initial mapping"
+    log.info "  02_masked_reads/          - Reads with viral regions masked"
+    log.info "  final_results/            - Integration sites in human genome"
+    log.info ""
+    log.info "Integration Sites:"
+    log.info "  ${params.outdir}/final_results/*integration_sites.txt"
+    log.info "  ${params.outdir}/final_results/*integration_summary.txt"
+    log.info ""
+    log.info "Supporting Evidence:"
+    log.info "  ${params.outdir}/flank_host_mapping/*.flanks.bam"
+    log.info "  ${params.outdir}/confirmed_host_mapping/*.human.bam"
     log.info "========================================================================================"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 ###################################################################
-## PROGRAM: combine_hiv_V2.py                                    ##
+## PROGRAM: combine_viral.py                                    ##
 ## AUTHOR:  David Sachs, Ichan School of Medicine at Mount Sinai ##
 ##          Modified by Eric Rouchka, University of Louisville   ##
 ##          Adapted for Nextflow by Connor S. Murray             ##
@@ -101,7 +101,7 @@ def combine_hiv_results(prefix):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: combine_hiv_V2.py <prefix>")
+        print("Usage: combine_viral.py <prefix>")
         sys.exit(1)
     
     combine_hiv_results(sys.argv[1])

@@ -40,7 +40,7 @@ def process_read(read, last):
     ##        last: flag indicating if this is the last sequence ##
     ##-----------------------------------------------------------##
     ## Processes the SAM file and fasta file to unmask the       ##
-    ## sequences n the fasta file to produce a new unmasked fa   ##
+    ## sequences n the fasta file to produce a new unmasked fasta##
     ###############################################################
 
     mask = maskfile.readline()

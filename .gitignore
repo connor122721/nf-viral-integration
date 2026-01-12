@@ -4,6 +4,7 @@
 *.ipynb
 scripts/.ipynb_checkpoints
 .vscode*
+bin/__pycache__/
 
 output_test/
 output*/

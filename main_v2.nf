@@ -308,9 +308,10 @@ process ITERATIVE_MAPPING {
         tuple val(sample_id), path(initial_sam), path(viral_genome)
 
     output:
-        tuple val(sample_id), path("*.1.sam"), emit: iteration_1_sam
+        tuple val(sample_id), path("*trim.1.sam"), emit: iteration_1_sam
         tuple val(sample_id), path("*.final.masked.fa"), emit: final_masked_fa
         tuple val(sample_id), path("*.penultimate.masked.fa"), emit: penultimate_masked_fa
+        tuple val(sample_id), path("*sam"), emit: iteration_sams
         path "*_iteration_log.txt", emit: log
 
     script:
@@ -417,7 +418,7 @@ workflow {
     integration_script_ch = Channel.fromPath("${script_dir}/viral_integration.py", checkIfExists: true)
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
-    combine_script_ch = Channel.fromPath("${script_dir}/combine_viral.py", checkIfExists: true)
+    combine_script_ch = Channel.fromPath("${script_dir}/combine_viral_v2.py", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads (simulation or patient data)
@@ -509,8 +510,9 @@ workflow {
     combine_input = MAP_FLANKS_TO_HOST.out.sam
         .join(CONFIRM_HOST_ALIGNMENTS.out.filtered_sam)
         .join(UNMASK_SEQUENCES.out.fasta)
-        .map { sample_id, flank_sam, host_sam, unmasked_fa ->
-            tuple(sample_id, flank_sam, host_sam, unmasked_fa)}
+        .join(ITERATIVE_MAPPING.out.iteration_sams)
+        .map { sample_id, flank_sam, host_sam, iteration_sams, unmasked_fa ->
+            tuple(sample_id, flank_sam, host_sam, iteration_sams, unmasked_fa)}
     
     COMBINE_RESULTS(combine_input, 
                     combine_script_ch.first())

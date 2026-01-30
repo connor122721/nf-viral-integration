@@ -4,9 +4,9 @@
 ========================================================================================
     Viral Integration Detection Pipeline
 ========================================================================================
-    Version: 2.3.0
+    Version: 1
     By: Connor S. Murray, PhD
-    Based on: SMRTCap methodology (Smith Lab, University of Louisville)
+    Based on: SMRTCap methodology (Smith Lab, University of Louisville School of Medicine)
 
     Workflow:
       1. Select best viral reference via competitive mapping
@@ -242,18 +242,22 @@ process MULTI_REFERENCE_MAPPING {
         def ref_name = viral_genome.baseName
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
         """
-        # Map reads to this viral reference
+        # Map reads to this viral reference & remove reads < 200bps aligned
         minimap2 \\
             -t ${params.threads} \\
             -m 0 \\
             -Y \\
             -ax map-pb \\
             ${viral_genome} \\
-            ${reads} > ${sample_id_i}_vs_${ref_name}.sam
+            ${reads} | \\
+            samtools view -h -F 4 -e 'length(seq)>=200' \\
+            -o ${sample_id_i}_vs_${ref_name}.sam > \\
+            ${sample_id_i}_vs_${ref_name}.sam
         
         # Generate mapping statistics
         samtools flagstat \\
-            ${sample_id_i}_vs_${ref_name}.sam > ${sample_id_i}_vs_${ref_name}.stats.txt
+            ${sample_id_i}_vs_${ref_name}.sam > \\
+            ${sample_id_i}_vs_${ref_name}.stats.txt
         """
 }
 
@@ -311,7 +315,7 @@ process ITERATIVE_MAPPING {
         tuple val(sample_id), path("*trim.1.sam"), emit: iteration_1_sam
         tuple val(sample_id), path("*.final.masked.fa"), emit: final_masked_fa
         tuple val(sample_id), path("*.penultimate.masked.fa"), emit: penultimate_masked_fa
-        tuple val(sample_id), path("*sam"), emit: iteration_sams
+        tuple val(sample_id), path("*.[0-9].sam"), emit: iteration_sams
         path "*_iteration_log.txt", emit: log
 
     script:
@@ -319,10 +323,9 @@ process ITERATIVE_MAPPING {
         def ref_name = viral_genome.baseName
         """
         #!/bin/bash
-        set -e
-        
+
         PREFIX="${sample_id_clean}"
-        MAX_ITER=${params.max_iterations}
+        MAX_ITER=${params.max_iterations} 
         
         echo "Starting iterative viral masking for ${sample_id_clean}" > \${PREFIX}_iteration_log.txt
         echo "Viral reference: ${ref_name}" >> \${PREFIX}_iteration_log.txt
@@ -335,8 +338,6 @@ process ITERATIVE_MAPPING {
         # Copy and filter initial SAM file
         cp ${initial_sam} \${PREFIX}.initial.\${NUM}.sam
         
-        # Filter: remove secondary and unmapped (flag 260)
-        samtools view -h -S -F 260 \${PREFIX}.initial.\${NUM}.sam > \${PREFIX}.\${NUM}.temp.sam
         # Filter: remove secondary, unmapped, and supplementary (flag 0x904)
         samtools view -h -S -F 0x904 \${PREFIX}.initial.\${NUM}.sam > \${PREFIX}.\${NUM}.sam
         
@@ -367,26 +368,29 @@ process ITERATIVE_MAPPING {
             echo "" >> \${PREFIX}_iteration_log.txt
             echo "Iteration \${NUM}:" >> \${PREFIX}_iteration_log.txt
             MAPPED_COUNT=\$(samtools view -c -F 4 \${PREFIX}.\${NUM}.sam)
-            echo "  Mapped reads: \${MAPPED_COUNT}" >> \${PREFIX}_iteration_log.txt
+            echo "Mapped reads: \${MAPPED_COUNT}" >> \${PREFIX}_iteration_log.txt
             
             # Check if no more viral reads found
             if [[ \$(samtools view -c -F 4 \${PREFIX}.initial.\${NUM}.sam) -eq 0 ]]; then 
-                echo "  No more viral reads found - stopping iteration" >> \${PREFIX}_iteration_log.txt
+                echo "No more viral reads found." >> \${PREFIX}_iteration_log.txt
                 break
             fi
         done
         
         # Create final masked FASTA from last iteration
         python ${projectDir}/bin/mask.py \${PREFIX}.\${NUM}.sam > \${PREFIX}.\${NUM}.fa
-        cp \${PREFIX}.\${NUM}.fa \${PREFIX}.final.masked.fa
+        mv \${PREFIX}.\${NUM}.fa \${PREFIX}.final.masked.fa
         
         # Create penultimate masked FASTA (for flank extraction)
         if [ \${NUM} -gt 1 ]; then
-            cp \${PREFIX}.\$((NUM-1)).fa \${PREFIX}.penultimate.masked.fa
+            mv \${PREFIX}.\$((NUM-1)).fa \${PREFIX}.penultimate.masked.fa
         else
             # If only 1 iteration, penultimate = final
             cp \${PREFIX}.\${NUM}.fa \${PREFIX}.penultimate.masked.fa
         fi
+
+        # Remove intermediates
+        rm *initial*sam
         
         echo "" >> \${PREFIX}_iteration_log.txt
         echo "Iterative masking complete after \${NUM} iterations" >> \${PREFIX}_iteration_log.txt
@@ -404,6 +408,7 @@ include { EXTRACT_FLANKS } from './bin/genomic_processes.nf'
 include { MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'
 include { CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
 include { COMBINE_RESULTS } from './bin/genomic_processes.nf'
+include { INTEGRATION_ANNOTATE } from './bin/integration_annotation.nf'
 
 workflow {
     // ==================================================================================
@@ -418,16 +423,22 @@ workflow {
     integration_script_ch = Channel.fromPath("${script_dir}/viral_integration.py", checkIfExists: true)
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
-    combine_script_ch = Channel.fromPath("${script_dir}/combine_viral_v2.py", checkIfExists: true)
+    combine_script_ch = Channel.fromPath("${script_dir}/combine_viral_v3.py", checkIfExists: true)
+    annotate_script_ch = Channel.fromPath("${script_dir}/BMS.insertion.v3.3.ECR.R", checkIfExists: true)
 
     // ==================================================================================
-    // STEP 0: Prepare input reads (simulation or patient data)
+    // STEP 0: Prepare input reads (simulation or patient-based data)
     // ==================================================================================
     if (params.patient_dir || params.patient_bam || params.patient_fastq) {
+
         // PATIENT DATA MODE
         if (params.patient_dir) {
             bam_files_ch = Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false)
+                .filter { !it.name.toLowerCase().contains('unassigned') }
+                
             fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
+                .filter { !it.name.toLowerCase().contains('unassigned') }
+            
             BAM_TO_FASTQ(bam_files_ch)
             input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
         } else if (params.patient_bam) {
@@ -513,11 +524,20 @@ workflow {
         .join(ITERATIVE_MAPPING.out.iteration_sams)
         .map { sample_id, flank_sam, host_sam, iteration_sams, unmasked_fa ->
             tuple(sample_id, flank_sam, host_sam, iteration_sams, unmasked_fa)}
-    
+
+    // Run combination script
     COMBINE_RESULTS(combine_input, 
                     combine_script_ch.first())
+
+    // ==================================================================================
+    // STEP 4: Annotate integrate sites in host genome 
+    // ==================================================================================
+    INTEGRATION_ANNOTATE(COMBINE_RESULTS.out.csv,
+                         annotate_script_ch.first())
+
 }
 
+// Logging workflow
 workflow.onComplete {
     log.info ""
     log.info "========================================================================================"
@@ -530,7 +550,7 @@ workflow.onComplete {
     log.info "Key Results:"
     log.info "  01_reference_selection/   - Best viral reference & initial mapping"
     log.info "  02_iterative_masking/     - Iterative viral masking (until no reads left)"
-    log.info "  03_final_results/            - Integration sites in human genome"
+    log.info "  04_final_results/            - Integration sites in human genome"
     log.info ""
     log.info "Integration Sites:"
     log.info "  ${params.outdir}/final_results/*integration_sites.txt"

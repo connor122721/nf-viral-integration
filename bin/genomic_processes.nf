@@ -1,5 +1,4 @@
 #!/bin/env nextflow
-
 nextflow.enable.dsl = 2
 
 // Unmask sequences (extract HIV-aligned segments)
@@ -29,7 +28,7 @@ process UNMASK_SEQUENCES {
 // Extract flanking sequences
 process EXTRACT_FLANKS {
     tag "${sample_id}"
-    publishDir "${params.outdir}/flanking_sequences", mode: 'copy'
+    publishDir "${params.outdir}/03_flank_host_mapping", mode: 'copy'
 
     container params.container
 
@@ -51,7 +50,7 @@ process EXTRACT_FLANKS {
 // Map flanks to host genome
 process MAP_FLANKS_TO_HOST {
     tag "${sample_id}"
-    publishDir "${params.outdir}/flank_host_mapping", mode: 'copy'
+    publishDir "${params.outdir}/03_flank_host_mapping", mode: 'copy'
 
     container params.container
 
@@ -93,7 +92,7 @@ process MAP_FLANKS_TO_HOST {
 // Confirm alignments by mapping original reads to host
 process CONFIRM_HOST_ALIGNMENTS {
     tag "${sample_id}"
-    publishDir "${params.outdir}/confirmed_host_mapping", mode: 'copy'
+    publishDir "${params.outdir}/03_flank_host_mapping", mode: 'copy'
 
     container params.container
 
@@ -149,7 +148,7 @@ process CONFIRM_HOST_ALIGNMENTS {
 // Combine HIV integration results
 process COMBINE_RESULTS {
     tag "${sample_id}"
-    publishDir "${params.outdir}/final_results", mode: 'copy'
+    publishDir "${params.outdir}/04_final_results", mode: 'copy'
 
     container params.container
 
@@ -158,128 +157,25 @@ process COMBINE_RESULTS {
         path combine_script
 
     output:
-        tuple val(sample_id), path("*.xlsx"), emit: xlsx, optional: true
-        tuple val(sample_id), path("*.tab"), emit: tab, optional: true
-        tuple val(sample_id), path("*.csv"), emit: csv, optional: true
-        path "*.rtf", emit: rtf, optional: true
-        tuple val(sample_id), path("*.integration_summary.txt"), emit: summary
-        path "*.combine.log", emit: log
+        tuple val(sample_id), path("*.tab"), emit: tab
+        tuple val(sample_id), path("*.csv"), emit: csv
+        tuple val(sample_id), path("*.rtf")
+        tuple val(sample_id), path("*.log")
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
         """
-        # Stage all files with correct naming for combine_hiv_V2b.py
-        # The script (via IntegrationClass) may expect either:
-        #   - prefix.N.sam (new Nextflow style) OR
-        #   - hiv.N.sam (old original style)
-        # We'll create both for maximum compatibility
-        
-        echo "=== Staging iteration SAM files ===" >&2
-        
-        # Link all iteration SAM files with both naming conventions
-        for sam_file in ${iteration_sams}; do
-            # Extract iteration number from filename
-            if [[ \$sam_file =~ \\.([0-9]+)\\.sam\$ ]]; then
-                iter_num=\${BASH_REMATCH[1]}
-                
-                # Create symlink with sample_id.N.sam naming (new style)
-                ln -sf \$(readlink -f \$sam_file) ${sample_id_i}.\${iter_num}.sam
-                echo "  Linked: \$sam_file -> ${sample_id_i}.\${iter_num}.sam" >&2
-                
-                # Also create symlink with hiv.N.sam naming (legacy compatibility)
-                ln -sf \$(readlink -f \$sam_file) hiv.\${iter_num}.sam
-                echo "  Linked: \$sam_file -> hiv.\${iter_num}.sam (legacy)" >&2
-            fi
-        done
-        
         # Link flanks file with both naming conventions
-        ln -sf ${flank_sam} ${sample_id_i}.flanks.sam
-        ln -sf ${flank_sam} flanks.sam  # Legacy compatibility
-        echo "  Linked: ${flank_sam} -> ${sample_id_i}.flanks.sam" >&2
-        echo "  Linked: ${flank_sam} -> flanks.sam (legacy)" >&2
+        ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*flanks.sam ${sample_id_i}.flanks.sam
         
         # Link human filtered file with both naming conventions
-        ln -sf ${host_sam} ${sample_id_i}.human.filtered.sam
-        ln -sf ${host_sam} human.filtered.sam  # Legacy compatibility
-        echo "  Linked: ${host_sam} -> ${sample_id_i}.human.filtered.sam" >&2
-        echo "  Linked: ${host_sam} -> human.filtered.sam (legacy)" >&2
-        
-        echo "" >&2
-        echo "=== Files in working directory ===" >&2
-        ls -lh ${sample_id_i}.*.sam hiv.*.sam 2>/dev/null >&2 || ls -lh *.sam >&2
-        echo "" >&2
+        ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*human.filtered.sam ${sample_id_i}.human.filtered.sam
         
         # Run the combine script with sample_id as argument
-        echo "=== Running combine script ===" >&2
-        python ${combine_script} ${sample_id_i} > ${sample_id_i}.combine.log 2>&1 || {
-            EXIT_CODE=\$?
-            echo "ERROR: combine script failed with exit code \${EXIT_CODE}" >&2
-            echo "" >&2
-            echo "=== Last 50 lines of log ===" >&2
-            tail -n 50 ${sample_id_i}.combine.log >&2
-            echo "" >&2
-            echo "Creating minimal outputs..." >&2
-            
-            # Create empty Excel file
-            python -c "import xlsxwriter; wb = xlsxwriter.Workbook('${sample_id_i}.xlsx'); wb.close()" || \
-                touch ${sample_id_i}.xlsx
-            
-            # Create minimal tab/csv files
-            echo "No integration sites detected" > ${sample_id_i}.tab
-            echo "No integration sites detected" > ${sample_id_i}.csv
-            
-            # Create error summary
-            echo "=== HIV Integration Analysis Summary ===" > ${sample_id_i}.integration_summary.txt
-            echo "Sample: ${sample_id_i}" >> ${sample_id_i}.integration_summary.txt
-            echo "Status: FAILED" >> ${sample_id_i}.integration_summary.txt
-            echo "" >> ${sample_id_i}.integration_summary.txt
-            echo "The combine script encountered an error." >> ${sample_id_i}.integration_summary.txt
-            echo "See ${sample_id_i}.combine.log for details." >> ${sample_id_i}.integration_summary.txt
-            echo "" >> ${sample_id_i}.integration_summary.txt
-            echo "=== Error Log (last 50 lines) ===" >> ${sample_id_i}.integration_summary.txt
-            tail -n 50 ${sample_id_i}.combine.log >> ${sample_id_i}.integration_summary.txt 2>/dev/null || true
-            
-            # Exit with 0 to not fail the pipeline (outputs are created)
-            exit 0
-        }
-        
-        echo "=== Combine script completed successfully ===" >&2
-        
-        # Generate or enhance summary
-        if [ ! -f ${sample_id_i}.integration_summary.txt ]; then
-            echo "=== HIV Integration Analysis Summary ===" > ${sample_id_i}.integration_summary.txt
-            echo "Sample: ${sample_id_i}" >> ${sample_id_i}.integration_summary.txt
-            echo "" >> ${sample_id_i}.integration_summary.txt
-        fi
-        
-        # Count integration sites from the tab file if it exists
-        if [ -f ${sample_id_i}.tab ] && [ -s ${sample_id_i}.tab ]; then
-            LINE_COUNT=\$(wc -l < ${sample_id_i}.tab)
-            SITE_COUNT=\$((LINE_COUNT - 1))  # Subtract header
-            echo "" >> ${sample_id_i}.integration_summary.txt
-            echo "Integration sites detected: \${SITE_COUNT}" >> ${sample_id_i}.integration_summary.txt
-            
-            # Count unique human groups if column exists (column 2)
-            if [ \${SITE_COUNT} -gt 0 ]; then
-                GROUPS=\$(tail -n +2 ${sample_id_i}.tab | cut -f2 | sort -u | grep -v "^\$" | wc -l)
-                echo "Unique integration groups: \${GROUPS}" >> ${sample_id_i}.integration_summary.txt
-            fi
-        else
-            echo "" >> ${sample_id_i}.integration_summary.txt
-            echo "No integration sites detected" >> ${sample_id_i}.integration_summary.txt
-        fi
-        
-        # List all output files
-        echo "" >> ${sample_id_i}.integration_summary.txt
-        echo "=== Output Files ===" >> ${sample_id_i}.integration_summary.txt
-        ls -1h ${sample_id_i}.xlsx ${sample_id_i}.tab ${sample_id_i}.csv ${sample_id_i}*.rtf 2>/dev/null | \
-            while read f; do
-                SIZE=\$(du -h "\$f" | cut -f1)
-                echo "  \$f (\${SIZE})" >> ${sample_id_i}.integration_summary.txt
-            done
-        
-        echo "" >&2
-        echo "=== Processing Summary ===" >&2
-        cat ${sample_id_i}.integration_summary.txt >&2
+        python ${combine_script} ${sample_id_i}
+
+        # Move log
+        cp .command.out ${sample_id_i}.log
+        exit 0
         """
 }

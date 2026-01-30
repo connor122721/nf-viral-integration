@@ -5,10 +5,14 @@ Select best viral reference genome based on detailed alignment metrics
 
 import re
 import sys
+import os
 import argparse
 from pathlib import Path
 import shutil
 from collections import defaultdict
+
+os.chdir("Z:/nf-viral-integration/work/74/3c0588305eb40ea6629b7dc67154cc/")
+os.chdir("/home/c0murr09/nf-viral-integration/work/74/3c0588305eb40ea6629b7dc67154cc/")
 
 def parse_sam_for_metrics(sam_file):
     """Extract detailed alignment metrics from SAM file"""
@@ -23,7 +27,7 @@ def parse_sam_for_metrics(sam_file):
         'high_quality_matches': 0  # MAPQ >= 40
     }
     
-    with open(sam_file) as f:
+    with open(sam_files) as f:
         for line in f:
             if line.startswith('@'):
                 continue
@@ -45,6 +49,12 @@ def parse_sam_for_metrics(sam_file):
             
             if mapq >= 40:
                 metrics['high_quality_matches'] += 1
+            
+            print(metrics['mapped_reads'])
+            print(cigar)
+            print(mapq)
+            print(flag)
+            print(fields)
             
             # Parse optional fields for NM (edit distance)
             nm = None
@@ -156,20 +166,18 @@ def main():
     
     args = parser.parse_args()
     
-    # Build genome path lookup
-    genome_paths = build_genome_lookup(args.viral_genomes)
+sam_files="/home/c0murr09/nf-viral-integration/work/74/3c0588305eb40ea6629b7dc67154cc/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1005.trim_vs_C.ZM.2002.02ZM112.AB254144_best_reference.sam"
+viral_genomes="/home/c0murr09/nf-viral-integration/work/74/3c0588305eb40ea6629b7dc67154cc/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1005.trim_vs_C.ZM.2002.02ZM112.AB254144_best_reference.sam"
     
-    if args.debug:
-        print(f"DEBUG: Found {len(genome_paths)} genome entries:", file=sys.stderr)
-        for key in sorted(genome_paths.keys())[:10]:  # Show first 10
-            print(f"  {key} -> {genome_paths[key]}", file=sys.stderr)
-        print("", file=sys.stderr)
+# Build genome path lookup
+genome_paths = build_genome_lookup(viral_genomes)
     
     results = {}
     
     # Process each SAM file
-    for sam_file in args.sam_files:
-        sam_path = Path(sam_file)
+    for sam_file in sam_files:
+        print(sam_file)
+        sam_path = Path(sam_files)
         ref_name = extract_ref_name(sam_path.name)
         
         if not ref_name:
@@ -178,7 +186,7 @@ def main():
             continue
         
         # Parse detailed metrics from SAM
-        sam_metrics = parse_sam_for_metrics(sam_file)
+        sam_metrics = parse_sam_for_metrics(sam_files)
         
         if sam_metrics['mapped_reads'] == 0:
             print(f"Warning: No mapped reads for reference {ref_name}", file=sys.stderr)
@@ -302,7 +310,6 @@ def main():
     
     if not copied:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

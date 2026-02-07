@@ -1,0 +1,83 @@
+Bootstrap: docker
+From: rocker/r-ver:4.4
+
+%post
+    # Set environment variables
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Update and install system dependencies including BLAST+
+    apt-get update && apt-get install -y \
+        perl \
+        cpanminus \
+        libxml2-dev \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libfontconfig1-dev \
+        libharfbuzz-dev \
+        libfribidi-dev \
+        libfreetype6-dev \
+        libpng-dev \
+        libtiff5-dev \
+        libjpeg-dev \
+        zlib1g-dev \
+        ncbi-blast+ \
+        wget \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # Install Perl module Getopt::Long
+    cpanm Getopt::Long
+    
+    # Install BiocManager
+    R -e "install.packages('BiocManager', repos='https://cloud.r-project.org/')"
+    
+    # Install Bioconductor packages
+    R -e "BiocManager::install(c( \
+        'GenomicRanges', \
+        'rtracklayer', \
+        'TxDb.Hsapiens.UCSC.hg38.knownGene', \
+        'ensembldb', \
+        'EnsDb.Hsapiens.v86', \
+        'annotatr', \
+        'AnnotationHub', \
+        'S4Vectors' \
+    ), ask=FALSE, update=FALSE)"
+    
+    # Install CRAN packages
+    R -e "install.packages(c( \
+        'ggplot2', \
+        'dplyr', \
+        'stringr', \
+        'readxml', \
+        'ggforce', \
+        'stringi', \
+        'chromoMap', \
+        'randomcoloR', \
+        'data.table', \
+        'patchwork', \
+        'tidyr' \
+    ), repos='https://cloud.r-project.org/')"
+
+%environment
+    export LC_ALL=C
+    export PATH=/usr/bin:$PATH
+
+%runscript
+    exec R "$@"
+
+%help
+    This container includes:
+    - R 4.4
+    - Perl with Getopt::Long
+    - BLAST+ command-line tools (blastn, blastp, blastx, tblastn, tblastx, makeblastdb, etc.)
+    - Bioconductor packages for genomic analysis
+    - Various R packages for data analysis and visualization
+    
+    Usage:
+        # Interactive R session
+        apptainer run r-genomics-blast.sif
+        
+        # Run R script
+        apptainer exec r-genomics-blast.sif Rscript your_script.R
+        
+        # Run Perl script
+        apptainer exec r-genomics-blast.sif perl script.pl --option value

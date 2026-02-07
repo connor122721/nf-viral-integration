@@ -503,7 +503,7 @@ class IntegrationData:
       self.files = [join(d, f) for f in listdir(d) if isfile(join(d, f))]
       self.files = [f for f in self.files if pre==f.split('/')[-1][:len(pre)]]
 
-      self.hiv_files    = [x for x in self.files if re.search("trim.[0-9]*.sam", x)]
+      self.hiv_files    = [x for x in self.files if re.search("dedup.[0-9]*.sam", x)]
       self.flanks_file  = [x for x in self.files if re.search("flanks.sam", x)][0]
       self.human_file   = [x for x in self.files if re.search("human.filtered.sam", x)][0]
       self.max_hiv_file =  max([int(x.split('.')[-2]) for x in self.hiv_files])

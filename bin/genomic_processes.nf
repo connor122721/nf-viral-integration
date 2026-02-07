@@ -112,7 +112,7 @@ process CONFIRM_HOST_ALIGNMENTS {
         """
         # Convert initial SAM to FASTQ
         samtools fastq \\
-            ${sample_id_i}.1.sam > ${sample_id_i}.temp.fastq
+            ${sample_id_i}.dedup.1.sam > ${sample_id_i}.temp.fastq
 
         # Map to host genome
         minimap2 \\
@@ -172,7 +172,7 @@ process COMBINE_RESULTS {
         ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*human.filtered.sam ${sample_id_i}.human.filtered.sam
         
         # Run the combine script with sample_id as argument
-        python ${combine_script} ${sample_id_i}
+        python ${combine_script} ./${sample_id_i}
 
         # Move log
         cp .command.out ${sample_id_i}.log

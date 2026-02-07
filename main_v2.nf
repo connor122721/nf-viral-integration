@@ -4,9 +4,9 @@
 ========================================================================================
     Viral Integration Detection Pipeline
 ========================================================================================
-    Version: 1
+    Version: 2.3.0
     By: Connor S. Murray, PhD
-    Based on: SMRTCap methodology (Smith Lab, University of Louisville School of Medicine)
+    Based on: SMRTCap methodology (Smith Lab, University of Louisville)
 
     Workflow:
       1. Select best viral reference via competitive mapping
@@ -50,8 +50,8 @@ def helpMessage() {
     Masking/Mapping Parameters:
         --trim_begin            Bases to trim from read start [default: 0]
         --trim_end              Bases to trim from read end [default: 0]
-        --min_mapq              Minimum mapping quality [default: 20]
-        --max_iterations        Maximum iterative mapping cycles [default: 50]
+        --min_mapq              Minimum mapping quality [default: 30]
+        --max_iterations        Maximum iterative mapping cycles [default: 5]
     
     Output:
         --outdir                Output directory [default: ./output]
@@ -424,7 +424,8 @@ workflow {
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     combine_script_ch = Channel.fromPath("${script_dir}/combine_viral_v3.py", checkIfExists: true)
-    annotate_script_ch = Channel.fromPath("${script_dir}/BMS.insertion.v3.3.ECR.R", checkIfExists: true)
+    annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam.R", checkIfExists: true)
+    blast_script_ch = Channel.fromPath("${script_dir}/findViralGenes.pl", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads (simulation or patient-based data)
@@ -438,7 +439,7 @@ workflow {
                 
             fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
                 .filter { !it.name.toLowerCase().contains('unassigned') }
-            
+
             BAM_TO_FASTQ(bam_files_ch)
             input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
         } else if (params.patient_bam) {
@@ -533,7 +534,9 @@ workflow {
     // STEP 4: Annotate integrate sites in host genome 
     // ==================================================================================
     INTEGRATION_ANNOTATE(COMBINE_RESULTS.out.csv,
-                         annotate_script_ch.first())
+                         COMBINE_RESULTS.out.fasta,
+                         annotate_script_ch.first(),
+                         blast_script_ch.first())
 
 }
 
@@ -553,12 +556,12 @@ workflow.onComplete {
     log.info "  04_final_results/            - Integration sites in human genome"
     log.info ""
     log.info "Integration Sites:"
-    log.info "  ${params.outdir}/final_results/*integration_sites.txt"
-    log.info "  ${params.outdir}/final_results/*integration_summary.txt"
+    log.info "  ${params.outdir}/04_final_results/*integration_sites.txt"
+    log.info "  ${params.outdir}/04_final_results/*integration_summary.txt"
     log.info ""
     log.info "Supporting Evidence:"
-    log.info "  ${params.outdir}/flank_host_mapping/*.flanks.bam"
-    log.info "  ${params.outdir}/confirmed_host_mapping/*.human.bam"
+    log.info "  ${params.outdir}/03_flank_host_mapping/*.flanks.bam"
+    log.info "  ${params.outdir}/03_flank_host_mapping/*.human.bam"
     log.info ""
     log.info "Iteration Logs:"
     log.info "  ${params.outdir}/02_iterative_masking/*_iteration_log.txt"

@@ -53,6 +53,10 @@ lapply(package_names, library, character.only = TRUE)
   #                      "1.1.3", "1.52.0", "2.24.1", "1.20.0",
   #                      "0.38.2", "3.8.0", "1.26.0", "1.3.0", "0.6.5", "1.0.1", "1.2", "0.4.15")
   
+  
+  
+  # RUN 
+  { 
   finalNames <- c("seqnames", "start", "end", "width", "strand", 
                   "chromosome", "fivePrimeInsertion","threePrimeInsertion", "fivePrimeShear", "threePrimeShear", 
                   "Flanking", "slippage", "passQualityCheck", "first.failedStep", "first.READ", 
@@ -1395,7 +1399,7 @@ lapply(package_names, library, character.only = TRUE)
     cat("Addressing overlapping but non-identical ranges.\n")
     cat("For example, if read 1 exists between X and Y, while read 2 exists between Y and Z  -- these are clearly the same clone but with mapping issues. \n")
     
-    identifier <- makeGRangesFromDataFrame(identifier, seqnames.field =  "chromosome", start.field = "fivePrimeInsertion", end.field =  "threePrimeInsertion", keep.extra.columns = TRUE)
+    identifier <- GenomicRanges::makeGRangesFromDataFrame(identifier, seqnames.field =  "chromosome", start.field = "fivePrimeInsertion", end.field =  "threePrimeInsertion", keep.extra.columns = TRUE)
     #test <- group_by_overlaps(identifier, identifier) #ALTERNATIVE APPROACH
     #test <- as.data.frame(test) #ALTERNATIVE APPROACH
     #print(test$CloneIDsList.subject) other option! #ALTERNATIVE APPROACH
@@ -1798,7 +1802,7 @@ lapply(package_names, library, character.only = TRUE)
     cat("After processing,", validCount, "reads remain.\n")
     
     if (validCount != 0) {
-      bedgaps <- makeGRangesFromDataFrame(validReads, seqnames.field = "chromosome", start.field="fivePrimeInsertion", end.field="threePrimeInsertion", keep.extra.columns = TRUE)
+      bedgaps <- GenomicRanges::makeGRangesFromDataFrame(validReads, seqnames.field = "chromosome", start.field="fivePrimeInsertion", end.field="threePrimeInsertion", keep.extra.columns = TRUE)
     } else if (validCount == 0) {
       cat("There are no reads that pass quality control at this point in time.\n")
       bedgaps <- GRanges()
@@ -1821,7 +1825,7 @@ lapply(package_names, library, character.only = TRUE)
     ## for slippage with +-5 bp difference                            ##
     ####################################################################
     cat("Entering reduceRedundantRanges...\n")
-    overlaps <- makeGRangesFromDataFrame(bed, seqnames.field = "chromosome", start.field="fivePrimeInsertion", end.field="threePrimeInsertion", keep.extra.columns = TRUE)
+    overlaps <- GenomicRanges::makeGRangesFromDataFrame(bed, seqnames.field = "chromosome", start.field="fivePrimeInsertion", end.field="threePrimeInsertion", keep.extra.columns = TRUE)
     overlaps <-reduce(overlaps, min.gapwidth = 5L, with.revmap = TRUE)
     overlaps <- as_tibble(overlaps)
     at <- overlaps$revmap
@@ -1829,7 +1833,7 @@ lapply(package_names, library, character.only = TRUE)
     at <- lapply(at, function(i) as.data.frame(unlist(i)))
     at <- bind_rows(at)
     overlaps$wiggle.count <- at$`unlist(i)`
-    overlaps <- makeGRangesFromDataFrame(overlaps, keep.extra.columns = TRUE)
+    overlaps <- GenomicRanges::makeGRangesFromDataFrame(overlaps, keep.extra.columns = TRUE)
     elapsed_time <- toc(log = TRUE)  # Stop timer and log timing
     elapsed_time
     return(overlaps)
@@ -1880,7 +1884,7 @@ lapply(package_names, library, character.only = TRUE)
     qual_check$seqnames <- factor(qual_check$seqnames, levels=chr0.order)
     #qual_check$id <- row.names(qual_check)
     qual_check <- qual_check[!is.na(qual_check$seqnames), ]
-    g <- makeGRangesFromDataFrame(qual_check, keep.extra.columns = TRUE)
+    g <- GenomicRanges::makeGRangesFromDataFrame(qual_check, keep.extra.columns = TRUE)
     g
     
     
@@ -1922,7 +1926,7 @@ lapply(package_names, library, character.only = TRUE)
     cat("________________________Entering modifyBedGaps...\n")
     cat("*************************************************\n")
     bedgaps <- as.data.frame(bedgaps) #old version: lapply(bedgaps, function(i) as.data.frame(i))
-    bedgaps <- makeGRangesFromDataFrame(bedgaps, keep.extra.columns = TRUE) #lapply(bedgaps, makeGRangesFromDataFrame, keep.extra.columns = TRUE)
+    bedgaps <- GenomicRanges::makeGRangesFromDataFrame(bedgaps, keep.extra.columns = TRUE) #lapply(bedgaps, makeGRangesFromDataFrame, keep.extra.columns = TRUE)
     elapsed_time <- toc(log = TRUE)  # Stop timer and log timing
     elapsed_time
     return(bedgaps)
@@ -1956,7 +1960,7 @@ lapply(package_names, library, character.only = TRUE)
       filter(rowSums(is.na(.)) < ncol(.))
     
     if (nrow(df_filtered) != 0) {
-      grange <- makeGRangesFromDataFrame(df_filtered, keep.extra.columns = TRUE)
+      grange <- GenomicRanges::makeGRangesFromDataFrame(df_filtered, keep.extra.columns = TRUE)
     } else {
       grange <- GRanges()
       mcols(grange) <- dataframe
@@ -2245,7 +2249,7 @@ lapply(package_names, library, character.only = TRUE)
       #names(intergenic[1:5]) <- c("seqnames", "start", "end", "width", "strand")
       #intergenic <- left_join(intergenic, temp)
       #intergenic <- split(intergenic, f = intergenic$subject)
-      intergenic <- makeGRangesFromDataFrame(intergenic, keep.extra.columns = TRUE, na.rm = FALSE) ###### I THINK I HAVE TO MIRROR over the missing coordinates
+      intergenic <- GenomicRanges::makeGRangesFromDataFrame(intergenic, keep.extra.columns = TRUE, na.rm = FALSE) ###### I THINK I HAVE TO MIRROR over the missing coordinates
       elapsed_time <- toc(log = TRUE)  # Stop timer and log timing
       elapsed_time
       print(intergenic)
@@ -2359,7 +2363,7 @@ lapply(package_names, library, character.only = TRUE)
     #if (integrationCount > tracker) {
       cat("Reformating o.annots.check into a GenomicRanges object.\n")
       #print(o.annots.check)
-      converted <- makeGRangesFromDataFrame(o.annots.check, keep.extra.columns = TRUE)
+      converted <- GenomicRanges::makeGRangesFromDataFrame(o.annots.check, keep.extra.columns = TRUE)
       print(converted)
       elapsed_time <- toc(log = TRUE)  # Stop timer and log timing
       elapsed_time
@@ -3284,7 +3288,7 @@ lapply(package_names, library, character.only = TRUE)
   #########################################################################################################
   #========================================================================================================
 
-
+}
 
 cat("Starting script!\n\n")
 #InstallBioconductorPackages(biocPackages)
@@ -3293,6 +3297,8 @@ cat("loading libraries...\n\n")
 #loadLibraries(biocPackages, RPackages)
 #loadLibraries(biocPackages, biocPackageVersions)
 #loadLibraries(RPackages, RPackageVersions)
+
+setwd("nf-viral-integration_hg38/output/04_final_results/")
 
 tic.clearlog()
 #tic("Script start after loading packages.\n")

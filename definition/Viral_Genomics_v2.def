@@ -122,6 +122,11 @@ From: ubuntu:22.04
     wget http://opengene.org/fastplong/fastplong
     chmod a+x ./fastplong
 
+    # Install pbmarkdup
+    cd /usr/local/bin
+    wget https://github.com/PacificBiosciences/pbmarkdup/releases/download/v1.2.0/pbmarkdup
+    chmod a+x ./pbmarkdup
+    
     # Install pbsim3
     cd /opt
     git clone https://github.com/yukiteruono/pbsim3.git

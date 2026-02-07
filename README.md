@@ -103,7 +103,7 @@ Still in development! If you use this pipeline, please cite:
 @software{murray2024nfviralintegration,
   author = {Murray, Connor},
   title = {nf-viral-integration: Nextflow pipeline for viral integration detection},
-  year = {2024},
+  year = {2026},
   url = {https://github.com/connor122721/nf-viral-integration}
 }
 ```

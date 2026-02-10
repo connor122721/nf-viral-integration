@@ -16,13 +16,12 @@ use Getopt::Long;
 ############################################
 
 ########################################################
-## GLOBAL VARIALBLES -- SHOULD CHANGE ON INSTALLATION ##
-########################################################
-my $DB_BASE   = "/home/kyinbre/data/HIV_GENES/BLAST_DB/";
-my $BLAST_CMD = "/home/kyinbre/bin/ncbi-blast-2.10.0+/bin/blastn";
-my $TMPDIR    = "/home/kyinbre/tmp/";
-my $IPDA_BLASTDB = "/home/kyinbre/data/HIV_GENES/BLAST_DB/HIV/IPDA/IPDA";
-my $IPDA_V2_BLASTDB = "/home/kyinbre/data/HIV_GENES/BLAST_DB/HIV/IPDA/IPDA_PMC9525950";
+## GLOBAL VARIALBLES
+my $DB_BASE   = "data/HIV_GENES/BLAST_DB";
+my $BLAST_CMD = "blastn";
+my $TMPDIR    = "tmp";
+my $IPDA_BLASTDB = "data/HIV_GENES/BLAST_DB/HIV/IPDA/IPDA";
+my $IPDA_V2_BLASTDB = "data/HIV_GENES/BLAST_DB/HIV/IPDA/IPDA_PMC9525950";
 my $PCT_CUTOFF = 0.7;
 my $PCT_CUTOFF_2 = 0.7;
 my $MIN_MATCH_LEN = 30; ## Min Len of gene match
@@ -30,10 +29,22 @@ my $inFN;
 my $OUT_FN;
 my $reference;
 my $virusType;
+my $PREFIX = "";
 
 GetOptions("reference=s" => \$reference,
            "virus=s" => \$virusType,
+           "prefix=s" => \$PREFIX,
            "in=s" => \$inFN, "out=s" => \$OUT_FN) || printUsage();
+
+## Apply prefix to all base paths
+if($PREFIX ne "") {
+   $PREFIX =~ s/\/$//;  ## Remove trailing slash if present
+   $DB_BASE   = "$PREFIX/$DB_BASE";
+   $TMPDIR    = "$PREFIX/$TMPDIR";
+   $IPDA_BLASTDB = "$PREFIX/$IPDA_BLASTDB";
+   $IPDA_V2_BLASTDB = "$PREFIX/$IPDA_V2_BLASTDB";
+}
+
 my $blastDB = validateParameters($inFN, $OUT_FN, $reference, $virusType);
 my $blastFA = $blastDB . ".fa";
 my %refGeneSeqs = getReferenceSequences($blastFA);
@@ -555,7 +566,7 @@ sub makeLTRHistogram {
    print RFILE "ggsave(plot=p, file=\"LTRBOTH_Histogram.png\", width=10, height=10, units=\"in\")\n";
 
    close(RFILE);
-   my $cmd = "/home/kyinbre/anaconda3/envs/R/bin/R CMD BATCH makeLTRHistogram.R";
+   my $cmd = "R CMD BATCH makeLTRHistogram.R";
    system($cmd);
    $cmd = "chmod g+w LTRHistogramData.txt";
    system($cmd);
@@ -587,7 +598,7 @@ sub makeLTRGraph {
    print RFILE "ggsave(plot=p, file=\"LTRUsage.png\", width=10, height=5, units=\"in\")\n";
    print RFILE "sessionInfo()\n";
    close(RFILE);
-   my $cmd = "/home/kyinbre/anaconda3/envs/R/bin/R CMD BATCH makeLTRGraphic.R";
+   my $cmd = "R CMD BATCH makeLTRGraphic.R";
    system($cmd);
    $cmd = "chmod g+w LTRPosCnts.txt";
    system($cmd);
@@ -802,7 +813,12 @@ sub getGeneLengths {
    my %lHASH;
    for(my $i = 0; $i < $numGenes; $i++) { 
       my $currGene = $testGeneARR[$i];
-      my $currFN = $DB_BASE . "/$virusType/$reference/$currGene" . ".fa";
+      my $currPattern = $DB_BASE . "/$virusType/$reference/$currGene" . ".fa";
+      my @geneMatches = glob($currPattern);
+      if(@geneMatches == 0) {
+         die("Cannot find gene file matching $currPattern");
+      }
+      my $currFN = $geneMatches[0];
       open(GENEFILE, $currFN) || die("Cannot open $currFN for reading");
       my $hdr = <GENEFILE>;
       my $seq = "";
@@ -834,11 +850,17 @@ sub validateParameters {
    if(!(($virusType eq "HIV") || ($virusType eq "SIV"))) {
       die("virus must be either HIV or SIV");
    }
-   my $blastDB = $DB_BASE . "/$virusType/$reference/allGenes";
-   my $blastTest = $blastDB . ".fa";
-   if(!(-e $blastTest)) {
-      die("Database $blastDB does not exist");
+   my $blastDB;
+   my $blastPattern = $DB_BASE . "/$virusType/$reference/allGenes";
+   my @matches = glob("${blastPattern}.fa");
+   if(@matches == 0) {
+      die("Database matching $blastPattern does not exist");
    }
+   if(@matches > 1) {
+      die("Multiple databases match $blastPattern: " . join(", ", @matches));
+   }
+   $blastDB = $matches[0];
+   $blastDB =~ s/\.fa$//;  ## Remove .fa extension to get base name
    return($blastDB);
 }
 #-----------------------------------------------------------------------------

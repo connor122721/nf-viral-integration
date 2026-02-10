@@ -449,7 +449,7 @@ workflow {
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     combine_script_ch = Channel.fromPath("${script_dir}/combine_hiv_V2b.py", checkIfExists: true)
-    annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam.R", checkIfExists: true)
+    annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam_v2.R", checkIfExists: true)
     blast_script_ch = Channel.fromPath("${script_dir}/findViralGenes.pl", checkIfExists: true)
 
     // ==================================================================================
@@ -568,10 +568,10 @@ workflow {
     // STEP 4: Annotate integrate sites in host genome 
     // ==================================================================================
     INTEGRATION_ANNOTATE(COMBINE_RESULTS.out.csv,
-                         COMBINE_RESULTS.out.fasta,
+                         SELECT_BEST_REFERENCE.out.best_ref_fa,
+                         UNMASK_SEQUENCES.out.fasta,
                          annotate_script_ch.first(),
                          blast_script_ch.first())
-
 }
 
 // Logging workflow

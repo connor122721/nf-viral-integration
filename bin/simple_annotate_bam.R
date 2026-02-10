@@ -1,5 +1,7 @@
 #!/usr/bin/env Rscript
 #
+# ssh bioinfo003; module load miniconda3; source activate smrtENV; R;
+#
 # Annotate integration sites for PCR duplicates, clonal IDs, and genomic features
 # PCR duplicates = same integration site + same viral insert region + same shear sites +/- 5bps
 # Clonal ID = unique integration site (regardless of viral sequence) + shear sites +/- 5bps

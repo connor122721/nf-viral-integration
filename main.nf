@@ -436,6 +436,7 @@ process ITERATIVE_MAPPING {
 
 // Import QC modules
 include { FASTQC } from './bin/qc_mods.nf'
+include { QUALIMAP } from './bin/qc_mods.nf'
 include { MULTIQC } from './bin/qc_mods.nf'
 
 // Import processes for integration site detection

@@ -238,23 +238,30 @@ process MULTI_REFERENCE_MAPPING {
     output:
         tuple val(sample_id), path(viral_genome), path("*.sam"), path("*stats.txt"), emit: results
         tuple val(sample_id), path("*.pbmarkdup.log")
-        tuple val(sample_id), path("*.dups.readnames.txt")
+        tuple val(sample_id), path("*.readnames.txt")
+        tuple val(sample_id), path("*.sorted.bam"), emit: sorted_bam
 
     script:
         def ref_name = viral_genome.baseName
         def sample_id_i = sample_id.replaceAll(/.bam$/, '')
         """
-        # Map reads to this viral reference & remove reads < 200bps aligned
+        # Map reads to this viral reference
         minimap2 \\
             -t ${params.threads} \\
             -m 0 \\
             -Y \\
             -ax map-pb \\
+            --score-N=0 \\
             ${viral_genome} \\
             ${reads} | \\
-            samtools view -h -F 4 -e 'length(seq)>=200' -b | \\
+            samtools view -h -F 4 -b | \\
             samtools sort -@ ${params.threads} \\
                 -o ${sample_id_i}_vs_${ref_name}.sorted.bam
+
+        # Get read names for mapped 
+        samtools view ${sample_id_i}_vs_${ref_name}.sorted.bam | \\
+            cut -f1 | \\
+            sort -u > ${sample_id_i}_vs_${ref_name}.allmapped.readnames.txt
         
         # Convert sorted BAM to FASTQ for pbmarkdup
         samtools fastq \\
@@ -427,6 +434,10 @@ process ITERATIVE_MAPPING {
 // WORKFLOW
 // ========================================================================================
 
+// Import QC modules
+include { FASTQC } from './bin/qc_mods.nf'
+include { MULTIQC } from './bin/qc_mods.nf'
+
 // Import processes for integration site detection
 include { UNMASK_SEQUENCES } from './bin/genomic_processes.nf'
 include { EXTRACT_FLANKS } from './bin/genomic_processes.nf'
@@ -476,8 +487,6 @@ workflow {
             input_reads_ch = BAM_TO_FASTQ.out.fastq.mix(fastq_files_ch)
                 .map { file -> def sample_id = file.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
                     tuple(sample_id, file)}
-            
-            input_reads_ch.view()
 
         } else if (params.patient_bam) {
             bam_ch = Channel.fromPath(params.patient_bam, checkIfExists: true)            
@@ -498,6 +507,9 @@ workflow {
                         tuple(sample_id, file)}
     }
 
+    // RUN FastQC
+    FASTQC(input_reads_ch)
+
     // ==================================================================================
     // STEP 1: Select best viral reference via competitive mapping per sample
     // ==================================================================================
@@ -511,6 +523,9 @@ workflow {
         .groupTuple(by: 0)  // Group by sample_id
         .map { sample_id, viral_genomes, sams, stats ->
             tuple(sample_id, viral_genomes, sams, stats)}
+
+    // QC of mapped reads
+    QUALIMAP(MULTI_REFERENCE_MAPPING.out.sorted_bam)
 
     // Select best reference for each sample
     SELECT_BEST_REFERENCE(grouped_results)
@@ -572,6 +587,12 @@ workflow {
                          UNMASK_SEQUENCES.out.fasta,
                          annotate_script_ch.first(),
                          blast_script_ch.first())
+
+    // At the very end of the workflow, collect all QC outputs
+    MULTIQC(FASTQC.out.zip
+            .mix(MULTI_REFERENCE_MAPPING.out.results.map { it[3] })
+            .mix(QUALIMAP.out.results)
+            .collect())
 }
 
 // Logging workflow

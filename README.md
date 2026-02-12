@@ -28,13 +28,30 @@ nextflow run main.nf \
   -bg 
 ```
 
+Or, to run the pipeline off of GitHub directly use:
+
+```bash
+# Load modules
+module load singularity 
+module load nextflow
+
+# Run pipeline
+nextflow run connor122721/nf-viral-integration -latest \ 
+  --patient_dir 'data/*.fastq.gz' \
+  --host_genome /path/to/host.fa \
+  --viral_genomes /path/to/hiv_panel.fa \
+  --outdir output \
+  -profile singularity \
+  -resume \
+  -bg
+```
+
 ## Pipeline Overview
 
 This pipeline detects viral integration sites through:
-1. **Quality filtering** of PacBio HiFi reads
-2. **Iterative mapping** to viral and host genomes
-3. **Integration site detection** from chimeric reads
-4. **Multi-reference support** for HIV subtypes (A, B, C, D, HIV-2, SIV)
+1. **Iterative mapping** to viral and host genomes
+2. **Integration site detection** from chimeric reads
+3. **Multi-reference support** for HIV subtypes (A, B, C, D, HIV-2, SIV)
 
 ## Input Data
 

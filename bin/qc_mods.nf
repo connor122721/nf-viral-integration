@@ -22,7 +22,7 @@ process FASTQC {
 
 // QC of mapping
 process QUALIMAP {
-    tag "${sample_id}_vs_${ref_name}"
+    tag "${sample_id}"
     publishDir "${params.outdir}/00_QualityControl/qualimap", mode: 'link'
 
     container params.containerQC

@@ -16,7 +16,7 @@ process FASTQC {
 
     script:
         """
-        fastqc -t ${params.threads} ${reads}
+        fastqc -t 16 ${reads}
         """
 }
 

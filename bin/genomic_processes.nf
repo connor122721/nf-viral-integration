@@ -169,10 +169,16 @@ process COMBINE_RESULTS {
         # ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*flanks.sam ${sample_id_i}.flanks.sam
         # Link human filtered file with both naming conventions
         # ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*human.filtered.sam ${sample_id_i}.human.filtered.sam
+        # ln -sf ${flank_sam} ${sample_id_i}.flanks.sam
+        # ln -sf ${host_sam} ${sample_id_i}.human.filtered.sam
         
-        ln -sf ${flank_sam} ${sample_id_i}.flanks.sam
-        ln -sf ${host_sam} ${sample_id_i}.human.filtered.sam
-        
+        # Input files
+        echo ${sample_id}
+        echo ${flank_sam}
+        echo ${host_sam}
+        echo ${unmasked_fa}
+        echo ${iteration_sams}
+
         # Run the combine script with sample_id as argument
         python ${combine_script} ./${sample_id_i}
 

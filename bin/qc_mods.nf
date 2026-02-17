@@ -5,7 +5,7 @@ process FASTQC {
     tag "${sample_id}"
     publishDir "${params.outdir}/00_QualityControl/fastqc", mode: 'link'
     
-    container params.containerQC
+    container 'docker://biocontainers/fastqc:v0.11.9_cv8'
 
     input:
         tuple val(sample_id), path(reads)
@@ -25,7 +25,7 @@ process QUALIMAP {
     tag "${sample_id}"
     publishDir "${params.outdir}/00_QualityControl/qualimap", mode: 'link'
 
-    container params.containerQC
+    container 'docker://mgibio/qualimap:v2.3'
 
     input:
         tuple val(sample_id), path(bam)
@@ -47,7 +47,7 @@ process QUALIMAP {
 process MULTIQC {
     publishDir "${params.outdir}/00_QualityControl/multiqc", mode: 'copy'
     
-    container params.containerQC
+    container 'docker://multiqc/multiqc:latest'
 
     input:
         path '*'

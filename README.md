@@ -1,9 +1,148 @@
 # Detecting viral integration with: NF-Viral-Integration
 - This is a nextflow pipeline for detecting HIV (and or general viral) integration sites using PacBio HiFi sequencing data across a host. Implements the SMRTCap methodology with iterative mapping and multi-reference viral genome support.
 
+
+## Pipeline Overview
+```mermaid
+flowchart TD
+    classDef input     fill:#1a1a2e,stroke:#4cc9f0,stroke-width:8px,color:#e0e0e0
+    classDef qc        fill:#16213e,stroke:#7209b7,stroke-width:4px,color:#e0e0e0
+    classDef step0     fill:#0f3460,stroke:#4cc9f0,stroke-width:4px,color:#e0e0e0
+    classDef step1     fill:#1a472a,stroke:#52b788,stroke-width:4px,color:#e0e0e0
+    classDef step2     fill:#3d1a00,stroke:#f77f00,stroke-width:4px,color:#e0e0e0
+    classDef step3     fill:#3b1f5e,stroke:#b5179e,stroke-width:4px,color:#e0e0e0
+    classDef step4     fill:#1b2838,stroke:#e9c46a,stroke-width:4px,color:#e0e0e0
+    classDef output    fill:#0d1b2a,stroke:#e9c46a,stroke-width:8px,color:#e9c46a,font-weight:bold
+    classDef decision  fill:#2b2d42,stroke:#ef233c,stroke-width:2px,color:#e0e0e0
+
+    %% ── INPUTS ──────────────────────────────────────────────────────────────
+    IN1([🧬 Patient HiFi BAM / FASTQ]):::input
+    IN2([📁 Patient Directory]):::input
+    IN3([⚙️  Simulation Mode]):::input
+
+    %% ── STEP 0: Read Preparation ─────────────────────────────────────────
+    subgraph S0 ["  STEP 0 · Read Preparation  "]
+        direction TB
+        BTOFQ["BAM → FASTQ: samtools fastq + pigz"]:::step0
+    end
+
+    %% ── SIMULATION BRANCH ────────────────────────────────────────────────
+    subgraph SIM ["  Simulation Branch  "]
+        direction TB
+        GENINT["Generate In Silico Integrations + Simulate HiFi Reads"]:::step0
+    end
+
+    %% ── QC ───────────────────────────────────────────────────────────────
+    subgraph QC ["  QC  "]
+        direction LR
+        FASTQC["FastQC + Qualimap + MultiQC Report"]:::qc
+    end
+
+    %% ── STEP 1: Reference Selection ──────────────────────────────────────
+    subgraph S1 ["  STEP 1 · Viral Reference Selection  "]
+        direction TB
+        MULTIMAP["Multi-Reference Mapping: minimap2 · pbmarkdup · samtools"]:::step1
+        SELREF["Select Best Reference: select_best_reference.py"]:::step1
+    end
+
+    %% ── STEP 2: Iterative Viral Masking ──────────────────────────────────
+    subgraph S2 ["  STEP 2 · Iterative Viral Masking  "]
+        direction TB
+        ITER1["Map to Viral Reference: minimap2 map-pb"]:::step2
+        MASK["Mask Viral Regions: mask.py"]:::step2
+        PICK["Pick Remaining Reads: pick_reads.py"]:::step2
+        CONV{{"Reads remain? & iter < max"}}:::decision
+        ITER1 --> MASK --> PICK --> CONV
+        CONV -- Yes --> ITER1
+    end
+
+    %% ── STEP 3: Integration Site Detection ──────────────────────────────
+    subgraph S3 ["  STEP 3 · Integration Site Detection  "]
+        direction TB
+        UNMASK["Unmask Viral Sequences: unmask.py"]:::step3
+        FLANKS["Extract Flanking Sequences: get_flanks.py"]:::step3
+        MAPHOST["Map Flanks → Human Genome: minimap2 · T2T"]:::step3
+        CONFIRM["Confirm Host Alignments: samtools · MAPQ filter"]:::step3
+        COMBINE["Combine & Call Integration Sites: combine_hiv_V2b.py"]:::step3
+    end
+
+    %% ── STEP 4: Annotation ───────────────────────────────────────────────
+    subgraph S4 ["  STEP 4 · Annotation & Reporting  "]
+        direction TB
+        ANNOT["Annotate Integration Sites: simple_annotate_bam_v2.R: findViralGenes.pl · BLAST"]:::step4
+    end
+
+    %% ── OUTPUTS ─────────────────────────────────────────────────────────
+    OUT1([📊 Integration Sites Table: .csv / .txt]):::output
+    OUT2([🧾 Mapping Comparison Report]):::output
+    OUT3([📈 MultiQC Report]):::output
+
+    %% ── EDGES ────────────────────────────────────────────────────────────
+    IN1 & IN2 --> BTOFQ
+    IN3 --> GENINT --> SIMREADS --> BTOFQ
+    BTOFQ --> MULTIMAP
+    BTOFQ --> FASTQC
+
+    MULTIMAP --> SELREF
+    MULTIMAP --> FASTQC
+    SELREF --> ITER1
+
+    CONV -- No --> UNMASK
+    CONV -- No --> FLANKS
+
+    FLANKS --> MAPHOST
+    ITER1 --> CONFIRM
+    UNMASK & MAPHOST & CONFIRM --> COMBINE
+    COMBINE --> ANNOT
+
+    ANNOT --> OUT1
+    SELREF --> OUT2
+    FASTQC --> OUT3
+```
+
 ## Requirements
-- **Nextflow** (≥21.04.0)
+- **Nextflow** (Tested on: 25.12.0-edge.10747)
 - **Container runtime**: Singularity, Apptainer, or Docker
+- **Host reference genome and GTF**: HG38/T2T
+- **HIV viral genomes**: HIV-A, HIV-B, etc.
+
+## Download human genome
+- We used the T2T reference genome for mapping: https://github.com/marbl/CHM13
+
+```bash
+# Download T2T and annotation
+wget https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0_maskedY_rCRS.fa.gz
+wget https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/annotation/chm13v2.0_RefSeq_Liftoff_v5.2.gff3.gz
+
+# Convert GFF3 to GTF (Will add as module soon)
+module load singularity
+
+# Genome toolkit
+cd sif
+singularity pull docker://biocontainers/genometools:v1.5.10ds-3-deb_cv1
+
+# Convert
+gunzip chm13v2.0_RefSeq_Liftoff_v5.2.gff3.gz
+singularity exec genometools_v1.5.10ds-3-deb_cv1.sif \\
+  gt gff3_to_gtf chm13v2.0_RefSeq_Liftoff_v5.2.gff3 > chm13v2.0_RefSeq_Liftoff_v5.2.gtf
+```
+
+### Testing
+Run the built-in test profile to verify your installation works before using real data. This uses a small real-world dataset bundled with the pipeline. You do have to provide a host genome (human) and a gtf. 
+
+```bash
+# Load modules
+module load singularity 
+module load nextflow
+
+# Run pipeline
+nextflow run main.nf \
+  --host_genome /path/to/host.fa.gz \
+  --gtf /path/to/host.gtf \
+  -profile test,singularity \
+  -resume \
+  -bg 
+```
 
 ## HPC Usage
 For SLURM-based HPC systems:
@@ -19,16 +158,17 @@ module load nextflow
 
 # Run pipeline
 nextflow run main.nf \
-  --patient_dir 'data/*.fastq.gz' \
-  --host_genome /path/to/host.fa \
+  --patient_dir /path/to/data/* \
+  --host_genome /path/to/host.fa.gz \
+  --gtf /path/to/host.gtf \
   --viral_genomes /path/to/hiv_panel.fa \
-  --outdir output \
-  -profile singularity \
+  --outdir ./nf_output \
+  -profile slurm,singularity \
   -resume \
   -bg 
 ```
 
-Or, to run the pipeline off of GitHub directly use:
+Or, to run the pipeline off of GitHub directly use (this pulls the latest version):
 
 ```bash
 # Load modules
@@ -37,11 +177,12 @@ module load nextflow
 
 # Run pipeline
 nextflow run connor122721/nf-viral-integration -latest \ 
-  --patient_dir 'data/*.fastq.gz' \
+  --patient_dir /path/to/data/* \
   --host_genome /path/to/host.fa \
+  --gtf /path/to/host.gtf \
   --viral_genomes /path/to/hiv_panel.fa \
-  --outdir output \
-  -profile singularity \
+  --outdir ./nf_output \
+  -profile slurm,singularity \
   -resume \
   -bg
 ```
@@ -57,12 +198,13 @@ This pipeline detects viral integration sites through:
 
 ### Required Files
 - **PacBio HiFi reads**: FASTQ or BAM format
-- **Host genome**: FASTA reference (e.g., hg38)
+    -  We assume all samples are demultiplexed and adaptors are removed!
+- **Host genome**: FASTA reference (e.g., hg38, t2t)
 - **Viral references**: Multi-FASTA with viral genomes
+- **Nextflow config**: Edited so it handles your HPC/compute environment
 
 ### Example Viral Reference Panel
-
-The pipeline supports multiple HIV references for optimal mapping:
+The pipeline supports multiple HIV references for optimal mapping (naming of the fastas are arbitrary):
 
 ```
 HIV-1_subtype_A.fa
@@ -84,12 +226,10 @@ output/
 
 ## Key Parameters
 ```bash
---reads              # Input HiFi reads (FASTQ/BAM)
+--patient_dir        # Input HiFi reads (FASTQ/BAM)
 --host_genome        # Host reference genome (FASTA)
 --viral_refs         # Viral reference genome(s) (FASTA)
 --outdir             # Output directory [default: ./results]
---min_mapq           # Minimum mapping quality [default: 20]
---min_read_length    # Minimum read length [default: 1000]
 ```
 
 ## Container Profiles
@@ -100,8 +240,8 @@ output/
 # Apptainer
 -profile apptainer
 
-# Docker
--profile docker
+# Test if it works with lightweight example!
+-profile test
 ```
 
 ## Pipeline Methodology
@@ -116,21 +256,15 @@ Based on SMRTCap protocol for viral integration detection:
 ## Citation
 Still in development! If you use this pipeline, please cite:
 
-```bibtex
-@software{murray2024nfviralintegration,
-  author = {Murray, Connor},
-  title = {nf-viral-integration: Nextflow pipeline for viral integration detection},
-  year = {2026},
-  url = {https://github.com/connor122721/nf-viral-integration}
-}
-```
+  ***Development and validation of HIV SMRTcap for the characterization of HIV-1 reservoirs across tissues and subtypes***
+  Sadri G, Nadakal ST, Lauer W, Kos J, Singh PK, et al. (2026) Development and validation of HIV SMRTcap for the characterization of HIV-1 reservoirs across tissues and subtypes. *PLOS Pathogens* 22(1): e1013171. https://doi.org/10.1371/journal.ppat.1013171
 
 ## Support
 For questions or issues:
 - Open an issue on [GitHub](https://github.com/connor122721/nf-viral-integration/issues)
-- Email: connor.murray.2@louisville.edu
+- Email: ***connor.murray.2@louisville.edu***
 
 ---
 
-**Develped by Connor Murray, Ph.D.**  
+**Develped by: Connor S. Murray, Ph.D.**  
 University of Louisville School of Medicine | Dept. of Biochemistry & Molecular Genetics

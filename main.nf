@@ -471,15 +471,20 @@ workflow {
 
         // PATIENT DATA MODE
         if (params.patient_dir) {
+
             // Scan for BAM files
-            bam_files_ch = Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false)
+            bam_files_ch = Channel.fromPath("${params.patient_dir}/**/*.bam", checkIfExists: false)
+                .mix(Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false))
                 .filter { it.exists() }
                 .filter { !it.name.toLowerCase().contains('unassigned') }
-            
+                .unique()
+
             // Scan for FASTQ files
-            fastq_files_ch = Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
+            fastq_files_ch = Channel.fromPath("${params.patient_dir}/**/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false)
+                .mix(Channel.fromPath("${params.patient_dir}/*.{fastq,fq,fastq.gz,fq.gz}", checkIfExists: false))
                 .filter { it.exists() }
                 .filter { !it.name.toLowerCase().contains('unassigned') }
+                .unique()
             
             // Convert BAMs to FASTQ
             BAM_TO_FASTQ(bam_files_ch)

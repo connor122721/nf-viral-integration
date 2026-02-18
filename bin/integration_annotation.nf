@@ -14,6 +14,7 @@ process INTEGRATION_ANNOTATE {
         tuple val(sample_id), path(unmasked_fa)
         path annotate_script
         path blast_script
+        path gtf
 
     output:
         path("*csv")
@@ -30,22 +31,25 @@ process INTEGRATION_ANNOTATE {
             ${csv} \\
             ${unmasked_fa} \\
             ${viral_fasta} \\
-            ${params.gtf} \\
+            ${gtf} \\
             ${sample_id_i}
         
         # Extract reference name from viral fasta header
         reference_name=\$(head -n1 ${viral_fasta} | cut -f1 -d" " | sed 's/>//g' | rev | cut -f1 -d"." | rev)
 
+        # Make tmp directory
+        mkdir -p ${projectDir}/tmp
+
         # Run blast perl script
         perl ${blast_script} \\
-            --prefix ${params.workDir} \\
+            --prefix ${projectDir} \\
             --in ${unmasked_fa} \\
             --virus HIV \\
             --reference \${reference_name}* \\
             --out ${sample_id_i}.viral.txt
 
         # Convert tab-delimited viral file to csv and strip trailing /0 or /1 from read IDs
-        sed 's/\t/,/g' ${sample_id_i}.viral.txt | \
+        sed 's/\t/,/g' ${sample_id_i}.viral.txt | \\
             sed 's|/ccs/[0-9]*|/ccs|' > ${sample_id_i}.viral.csv
 
         # Sort both files on the join column

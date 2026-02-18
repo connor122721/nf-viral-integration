@@ -454,6 +454,7 @@ workflow {
     host_genome_ch = Channel.fromPath(params.host_genome, checkIfExists: true)
     viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
     viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
+    host_gtf_ch = Channel.fromPath(params.gtf, checkIfExists: true)
 
     // Script paths
     script_dir = "${projectDir}/bin"
@@ -498,6 +499,8 @@ workflow {
             bam_ch = Channel.fromPath(params.patient_bam, checkIfExists: true)            
             BAM_TO_FASTQ(bam_ch)
             input_reads_ch = BAM_TO_FASTQ.out.fastq
+                .map { file -> def sample_id = file.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
+                    tuple(sample_id, file)}
         } else {
             input_reads_ch = Channel.fromPath(params.patient_fastq, checkIfExists: true)
                 .map { file -> def sample_id = file.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
@@ -592,7 +595,8 @@ workflow {
                          SELECT_BEST_REFERENCE.out.best_ref_fa,
                          UNMASK_SEQUENCES.out.fasta,
                          annotate_script_ch.first(),
-                         blast_script_ch.first())
+                         blast_script_ch.first(),
+                         host_gtf_ch)
 
     // At the very end of the workflow, collect all QC outputs
     MULTIQC(FASTQC.out.zip

@@ -1,9 +1,7 @@
 # Detecting viral integration with: NF-Viral-Integration
 - This is a nextflow pipeline for detecting HIV (and or general viral) integration sites using PacBio HiFi sequencing data across a host. Implements the SMRTCap methodology with iterative mapping and multi-reference viral genome support.
 
-
 ## Pipeline Overview
-
 ```mermaid
 flowchart TD
     classDef input     fill:#1a1a2e,stroke:#4cc9f0,stroke-width:8px,color:#e0e0e0
@@ -128,6 +126,25 @@ singularity exec genometools_v1.5.10ds-3-deb_cv1.sif \\
   gt gff3_to_gtf chm13v2.0_RefSeq_Liftoff_v5.2.gff3 > chm13v2.0_RefSeq_Liftoff_v5.2.gtf
 ```
 
+### Predownload SIF images
+```bash
+# Pre-download SIFs (which will make the pipeline run faster)
+module load singularity
+
+# Make sif directory once
+# mkdir ~/sif
+cd ~/sif
+
+# Pull images for genomics work
+singularity pull library://connmurr243/connmurrviral/viralint-r3
+singularity pull library://connmurr243/connmurr_viral/viral_int.sif
+
+# QC modules 
+singularity pull docker://biocontainers/fastqc:v0.11.9_cv8
+singularity pull docker://mgibio/qualimap:v2.3
+singularity pull docker://multiqc/multiqc:latest
+```
+
 ### Testing
 Run the built-in test profile to verify your installation works before using real data. This uses a small real-world dataset bundled with the pipeline. You do have to provide a host genome (human) and a gtf. 
 
@@ -242,7 +259,7 @@ output/
 -profile apptainer
 
 # Test if it works with lightweight example!
--profile test
+-profile test,singularity
 ```
 
 ## Pipeline Methodology

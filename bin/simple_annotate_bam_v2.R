@@ -88,71 +88,115 @@ cat(sprintf("  - Reference: %s\n", names(hiv_ref)[1]))
 cat(sprintf("  - Length: %d bp\n", width(hiv_ref)[1]))
 
 # ============================================================================
-# STEP 4: Determine viral orientation by alignment to reference
+# STEP 4: Determine viral orientation via minimap2 (fast)
 # ============================================================================
-cat("\nStep 4: Determining viral orientation by alignment to HIV reference...\n")
+cat("\nStep 4: Determining viral orientation using minimap2...\n")
 
-# Function to determine orientation by aligning to reference
-determine_orientation_by_alignment <- function(viral_seq, ref_seq, min_length = 500) {
-  if (is.na(viral_seq) || viral_seq == "" || nchar(viral_seq) < min_length) {
-    return(tibble(
-      orientation = NA_character_,
-      strand = NA_character_,
-      alignment_score_fwd = NA_real_,
-      alignment_score_rev = NA_real_,
-      ref_start = NA_integer_,
-      ref_end = NA_integer_,
-      percent_identity = NA_real_
-    ))
+# Filter sequences long enough for reliable orientation calling
+mappable_seqs <- seq_lookup %>%
+  filter(!is.na(viral_sequence), viral_sequence != "", nchar(viral_sequence) >= 500)
+
+cat(sprintf("  - %d sequences eligible for orientation mapping (>= 500 bp)\n",
+            nrow(mappable_seqs)))
+
+# Initialise orientation columns with NA defaults
+seq_lookup <- seq_lookup %>%
+  mutate(orientation        = NA_character_,
+         strand             = NA_character_,
+         alignment_score    = NA_real_,
+         ref_start          = NA_integer_,
+         ref_end            = NA_integer_,
+         percent_identity   = NA_real_)
+
+if (nrow(mappable_seqs) > 0) {
+
+  # Write viral sequences to a temporary FASTA
+  tmp_query_fa  <- tempfile(fileext = ".fa")
+  tmp_paf       <- tempfile(fileext = ".paf")
+
+  fasta_lines <- unlist(lapply(seq_len(nrow(mappable_seqs)), function(i) {
+    c(paste0(">", mappable_seqs$read_id[i]),
+      mappable_seqs$viral_sequence[i])
+  }))
+  writeLines(fasta_lines, tmp_query_fa)
+
+  # Run minimap2 in map-hifi mode; secondary alignments off; PAF output
+  # -c  : generate CIGAR in PAF
+  # --cs: compact difference string (gives match/mismatch counts)
+  mm2_cmd <- sprintf(
+    "minimap2 -c --cs -t 1 -x map-hifi '%s' '%s' > '%s' 2>/dev/null",
+    hiv_ref_fasta, tmp_query_fa, tmp_paf
+  )
+  cat("  - Running minimap2...\n")
+  system(mm2_cmd)
+
+  # Parse PAF ----------------------------------------------------------------
+  # PAF columns: qname qlen qstart qend strand tname tlen tstart tend
+  #              matches blocklen mapq  [tags...]
+  parse_paf <- function(paf_file) {
+    lines <- readLines(paf_file, warn = FALSE)
+    if (length(lines) == 0) return(tibble())
+
+    rows <- lapply(lines, function(l) {
+      f <- strsplit(l, "\t")[[1]]
+      if (length(f) < 12) return(NULL)
+
+      # Extract nm (number of mismatches+gaps) from tags if present
+      nm_tag <- grep("^NM:i:", f[13:length(f)], value = TRUE)
+      nm     <- if (length(nm_tag) > 0) as.integer(sub("NM:i:", "", nm_tag[1])) else NA_integer_
+
+      matches    <- as.integer(f[10])
+      block_len  <- as.integer(f[11])
+      pid        <- if (!is.na(block_len) && block_len > 0)
+                      100 * matches / block_len else NA_real_
+
+      tibble(
+        read_id        = f[1],
+        strand         = f[5],                    # "+" or "-"
+        ref_start      = as.integer(f[8]) + 1L,  # PAF is 0-based
+        ref_end        = as.integer(f[9]),
+        matches        = matches,
+        block_len      = block_len,
+        mapq           = as.integer(f[12]),
+        percent_identity = pid
+      )
+    })
+    bind_rows(Filter(Negate(is.null), rows))
   }
-  
-  # Convert to DNAString
-  query <- DNAString(viral_seq)
-  
-  # Align forward strand
-  aln_fwd <- pwalign::pairwiseAlignment(query, ref_seq, type = "local")
-  score_fwd <- score(aln_fwd)
-  
-  # Align reverse complement
-  query_rc <- reverseComplement(query)
-  aln_rc <- pwalign::pairwiseAlignment(query_rc, ref_seq, type = "local")
-  score_rc <- score(aln_rc)
-  
-  # Determine orientation based on which alignment is better
-  if (score_fwd > score_rc) {
-    orientation <- "5'"
-    strand <- "+"
-    best_aln <- aln_fwd
+
+  paf_df <- parse_paf(tmp_paf)
+
+  if (nrow(paf_df) > 0) {
+
+    # Keep the best alignment per read (highest matches)
+    best_per_read <- paf_df %>%
+      group_by(read_id) %>%
+      slice_max(matches, n = 1, with_ties = FALSE) %>%
+      ungroup() %>%
+      mutate(
+        orientation = if_else(strand == "+", "5'", "3'"),
+        alignment_score = as.numeric(matches)
+      ) %>%
+      dplyr::select(read_id, orientation, strand, alignment_score,
+                    ref_start, ref_end, percent_identity)
+
+    cat(sprintf("  - Orientation resolved for %d / %d sequences\n",
+                nrow(best_per_read), nrow(mappable_seqs)))
+
+    # Merge back into seq_lookup
+    seq_lookup <- seq_lookup %>%
+      rows_update(best_per_read, by = "read_id", unmatched = "ignore")
+
   } else {
-    orientation <- "3'"
-    strand <- "-"
-    best_aln <- aln_rc
+    cat("  - WARNING: minimap2 produced no alignments. Orientation will be NA.\n")
   }
 
-  print(paste0("Best mapping score - ", orientation))
-  
-  # Get alignment coordinates on reference
-  ref_start <- start(subject(best_aln))
-  ref_end <- end(subject(best_aln))
-  
-  tibble(
-    orientation = orientation,
-    strand = strand,
-    alignment_score_fwd = score_fwd,
-    alignment_score_rev = score_rc,
-    ref_start = ref_start,
-    ref_end = ref_end,
-    percent_identity = pwalign::pid(best_aln))
+  # Clean up temp files
+  unlink(c(tmp_query_fa, tmp_paf))
+
+} else {
+  cat("  - No sequences meet the minimum length threshold; skipping orientation.\n")
 }
-
-# Apply orientation determination (this may take a while)
-cat("  - Aligning sequences to reference (this may take a few minutes)...\n")
-orientation_results <- seq_lookup %>%
-  mutate(orientation_data = map(viral_sequence, ~determine_orientation_by_alignment(.x, hiv_ref[[1]])))
-seq_lookup <- data.table(orientation_results, rbindlist(orientation_results$orientation_data))
-seq_lookup$orientation_data = NULL
-
-#print(head(seq_lookup))
 
 # ============================================================================
 # STEP 5: Merge with sequence data
@@ -169,7 +213,7 @@ df <- df %>%
       }, TRUE ~ NA_character_)) %>%
   left_join(seq_lookup %>% 
       dplyr::select(read_id, viral_sequence, viral_seq_length, viral_orientation=orientation,
-                    viral_strand=strand, alignment_score_fwd, alignment_score_rev,
+                    viral_strand=strand, alignment_score,
                     ref_start, ref_end, percent_identity),
       by = c("read_match" = "read_id")) %>%
   select(-read_match)
@@ -398,11 +442,11 @@ unique_seqs <- df %>%
 cat(sprintf("Number of unique viral sequences (>= 100 bp): %d\n", nrow(unique_seqs)))
 
 if (nrow(unique_seqs) >= 2) {
-  cat("\nCalculating pairwise sequence similarities...\n")
+  cat("\nCalculating pairwise sequence similarities via minimap2...\n")
   
   # Create DNAStringSet for viral sequences
   viral_seqs <- DNAStringSet(unique_seqs$viral_sequence)
-  names(viral_seqs) <- paste0("seq", 1:length(viral_seqs), "_",
+  names(viral_seqs) <- paste0("seq", seq_along(viral_seqs), "_",
                               unique_seqs$viral_orientation, "_",
                               str_sub(unique_seqs$READ, 1, 30))
   
@@ -411,32 +455,41 @@ if (nrow(unique_seqs) >= 2) {
   writeXStringSet(viral_seqs, viral_fasta_file)
   cat(sprintf("  - Saved viral sequences to: %s\n", viral_fasta_file))
   
-  # Calculate pairwise alignment similarities
   n_seqs <- length(viral_seqs)
-  similarity_matrix <- matrix(0, nrow = n_seqs, ncol = n_seqs)
+  
+  # All-vs-all minimap2 similarity
+  tmp_all_paf <- tempfile(fileext = ".paf")
+  system2("minimap2", c("-c", "--cs", "-x", "map-hifi",
+                        "-t", "1", "-X",
+                        viral_fasta_file, viral_fasta_file),
+          stdout = tmp_all_paf, stderr = FALSE)
+
+  similarity_matrix <- diag(n_seqs)
   rownames(similarity_matrix) <- names(viral_seqs)
   colnames(similarity_matrix) <- names(viral_seqs)
-  
-  # Calculate similarities
-  for (i in 1:n_seqs) {
-    similarity_matrix[i, i] <- 1.0
-    if (i < n_seqs) {
-      for (j in (i+1):n_seqs) {
-        # Simple pairwise alignment
-        aln <- pairwiseAlignment(viral_seqs[i], viral_seqs[j])
-        pid <- pwalign::pid(aln) / 100  # Convert to proportion
-        similarity_matrix[i, j] <- pid
-        similarity_matrix[j, i] <- pid
+
+  paf_lines <- readLines(tmp_all_paf, warn = FALSE)
+  if (length(paf_lines) > 0) {
+    for (l in paf_lines) {
+      f <- strsplit(l, "\t")[[1]]
+      if (length(f) < 11) next
+      qi <- which(names(viral_seqs) == f[1])
+      ti <- which(names(viral_seqs) == f[6])
+      if (length(qi) == 1 && length(ti) == 1 && qi != ti) {
+        matches   <- as.integer(f[10])
+        block_len <- as.integer(f[11])
+        pid <- if (!is.na(block_len) && block_len > 0)
+                 matches / block_len else 0
+        if (pid > similarity_matrix[qi, ti])
+          similarity_matrix[qi, ti] <- similarity_matrix[ti, qi] <- pid
       }
     }
   }
+  unlink(tmp_all_paf)
   
   # Save similarity matrix
   sim_file <- paste0(output_prefix, "_similarity_matrix.csv")
   write_csv(as_tibble(similarity_matrix, rownames = "sequence"), sim_file)
-  
-  # Summary statistics
-  upper_tri <- similarity_matrix[upper.tri(similarity_matrix)]
   
   # Create heatmap
   if (n_seqs <= 50) {
@@ -455,17 +508,12 @@ if (nrow(unique_seqs) >= 2) {
   if (n_seqs >= 3 && n_seqs <= 100) {
     cat("\nBuilding phylogenetic tree...\n")
     
-    # Convert to distance matrix
     dist_mat <- as.dist(1 - similarity_matrix)
-    
-    # Build neighbor-joining tree
     tree <- nj(dist_mat)
     
-    # Save tree
     tree_file <- paste0(output_prefix, "_tree.nwk")
     write.tree(tree, tree_file)
     
-    # Plot tree
     tree_pdf <- paste0(output_prefix, "_tree.pdf")
     pdf(tree_pdf, width = 12, height = max(8, n_seqs * 0.4))
     plot(tree, 

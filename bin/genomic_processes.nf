@@ -1,25 +1,45 @@
 #!/bin/env nextflow
 nextflow.enable.dsl = 2
  
-// GFF converter 
+// Annotation file converter - handles GTF, GTF.gz, GFF3, GFF3.gz, GFF, GFF.gz
 process GFFCONVERT {
     publishDir "${params.outdir}/genome_files", mode: 'copy'
     
     container 'library://connmurr243/connmurr_viral/gffread.sif:latest'
 
     input:
-        path(gff)
+        path(annotation)
 
     output:
-        path("*.gtf"), emit: gtf
+        path("host.gtf"), emit: gtf
 
     script:
         """
-        if [[ "${gff}" == *.gz ]]; then
-            gunzip -c ${gff} > gff_input.gff3
-            gffread gff_input.gff3 -T -o host.gtf
+        # Detect file format and handle accordingly
+        FNAME="${annotation}"
+
+        if [[ "\${FNAME}" == *.gtf.gz ]]; then
+            # Compressed GTF - just decompress
+            gunzip -c "\${FNAME}" > host.gtf
+
+        elif [[ "\${FNAME}" == *.gtf ]]; then
+            # Uncompressed GTF - copy directly
+            cp "\${FNAME}" host.gtf
+
+        elif [[ "\${FNAME}" == *.gff3.gz ]] || [[ "\${FNAME}" == *.gff.gz ]]; then
+            # Compressed GFF3/GFF - decompress then convert
+            gunzip -c "\${FNAME}" > annotation_input.gff
+            gffread annotation_input.gff -T -o host.gtf
+            rm annotation_input.gff
+
+        elif [[ "\${FNAME}" == *.gff3 ]] || [[ "\${FNAME}" == *.gff ]]; then
+            # Uncompressed GFF3/GFF - convert directly
+            gffread "\${FNAME}" -T -o host.gtf
+
         else
-            gffread ${gff} -T -o host.gtf
+            echo "ERROR: Unrecognised annotation file format: \${FNAME}" >&2
+            echo "Supported formats: .gtf, .gtf.gz, .gff, .gff.gz, .gff3, .gff3.gz" >&2
+            exit 1
         fi
         """
 }

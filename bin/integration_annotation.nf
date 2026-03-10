@@ -17,11 +17,11 @@ process INTEGRATION_ANNOTATE {
         path gtf
 
     output:
-        path("*csv")
-        path("*nwk")
-        path("*txt")
-        path("*pdf")
-        path("*png")
+        path("*csv"),   emit: csv
+        path("*nwk"),   emit: nwk,  optional: true
+        path("*txt"),   emit: txt
+        path("*pdf"),   emit: pdf,  optional: true
+        path("*png"),   emit: png,  optional: true
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
@@ -64,5 +64,35 @@ process INTEGRATION_ANNOTATE {
 
         # Exit job
         exit 0
+        """
+}
+
+// Generate consolidated HTML report across all samples
+process CREATE_HTML_REPORT {
+    publishDir "${params.outdir}/05_report", mode: 'copy'
+
+    container params.container_R
+
+    input:
+        path annotated_csvs   // collected list of *_annotated.csv files
+        path report_script
+
+    output:
+        path("*_report.html"), emit: html
+
+    script:
+        def run_label = params.run_name ?: "viral_integration_run"
+        """
+        # Gather all annotated CSVs into a dedicated directory
+        mkdir -p results_for_report
+        for f in ${annotated_csvs}; do
+            cp "\${f}" results_for_report/
+        done
+
+        # Generate the HTML report
+        Rscript ${report_script} \\
+            results_for_report \\
+            ${run_label} \\
+            "${run_label}"
         """
 }

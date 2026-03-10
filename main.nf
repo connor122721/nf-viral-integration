@@ -4,7 +4,7 @@
 ========================================================================================
     Viral Integration Detection Pipeline
 ========================================================================================
-    Version: 2.3.0
+    Version: 0.2
     By: Connor S. Murray, PhD
     Based on: SMRTCap methodology (Smith Lab, University of Louisville)
 
@@ -23,7 +23,7 @@ nextflow.enable.dsl = 2
 def helpMessage() {
     log.info"""
     ========================================================================================
-    VIRAL INTEGRATION DETECTION PIPELINE v2.3.0
+    VIRAL INTEGRATION DETECTION PIPELINE v0.2
     ========================================================================================
 
     Usage:
@@ -333,7 +333,7 @@ process SELECT_BEST_REFERENCE {
         cp ${sample_id_i}_vs_\${BEST_REF}.sam ${sample_id_i}_vs_\${BEST_REF}_best_reference.sam
         """
 }
-
+ 
 // Iterative viral mapping - loops until no viral reads remain
 process ITERATIVE_MAPPING {
     tag "${sample_id}"
@@ -439,6 +439,9 @@ include { FASTQC } from './bin/qc_mods.nf'
 include { QUALIMAP } from './bin/qc_mods.nf'
 include { MULTIQC } from './bin/qc_mods.nf'
 
+// Reference genome work
+include { GFFCONVERT } from './bin/genomic_processes.nf'
+
 // Import processes for integration site detection
 include { UNMASK_SEQUENCES } from './bin/genomic_processes.nf'
 include { EXTRACT_FLANKS } from './bin/genomic_processes.nf'
@@ -454,7 +457,8 @@ workflow {
     host_genome_ch = Channel.fromPath(params.host_genome, checkIfExists: true)
     viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
     viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
-    host_gtf_ch = Channel.fromPath(params.gtf, checkIfExists: true)
+    host_gtf_ch = params.gtf ? Channel.fromPath(params.gtf, checkIfExists: true) : Channel.empty()
+    host_gff_ch = params.gff ? Channel.fromPath(params.gff, checkIfExists: true) : Channel.empty()
 
     // Script paths
     script_dir = "${projectDir}/bin"
@@ -466,7 +470,7 @@ workflow {
     blast_script_ch = Channel.fromPath("${script_dir}/findViralGenes.pl", checkIfExists: true)
 
     // ==================================================================================
-    // STEP 0: Prepare input reads (simulation or patient-based data)
+    // STEP 0: Prepare input reads (simulation or patient-based data) and GFF converter
     // ==================================================================================
     if (params.patient_dir || params.patient_bam || params.patient_fastq) {
 
@@ -478,6 +482,8 @@ workflow {
                 .mix(Channel.fromPath("${params.patient_dir}/*.bam", checkIfExists: false))
                 .filter { it.exists() }
                 .filter { !it.name.toLowerCase().contains('unassigned') }
+                .filter { !it.toUriString().toLowerCase().contains('fail_reads') }
+                .filter { it.toUriString().toLowerCase().contains('hifi_reads') }
                 .unique()
 
             // Scan for FASTQ files
@@ -515,6 +521,10 @@ workflow {
                     .map { file -> def sample_id = file.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
                         tuple(sample_id, file)}
     }
+
+    // Run GFF to GTF converter
+    GFFCONVERT(host_gff_ch)
+    gtf_ch = host_gtf_ch.mix(GFFCONVERT.out.gtf).first()
 
     // RUN FastQC
     FASTQC(input_reads_ch)
@@ -596,7 +606,7 @@ workflow {
                          UNMASK_SEQUENCES.out.fasta,
                          annotate_script_ch.first(),
                          blast_script_ch.first(),
-                         host_gtf_ch)
+                         gtf_ch)
 
     // At the very end of the workflow, collect all QC outputs
     MULTIQC(FASTQC.out.zip

@@ -113,7 +113,7 @@ flowchart TD
 wget https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0_maskedY_rCRS.fa.gz
 wget https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/annotation/chm13v2.0_RefSeq_Liftoff_v5.2.gff3.gz
 
-# Convert GFF3 to GTF (Will add as module soon)
+# Convert GFF3 to GTF
 module load singularity
 
 # Genome toolkit

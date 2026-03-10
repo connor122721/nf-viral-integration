@@ -1,0 +1,24 @@
+module load singularity
+
+cd ~/BMG/smithlab/nf_smrtcap_output
+
+~/nextflow run main.nf \
+    --gff ~/human_genome/t2t/chm13v2.0_RefSeq_Liftoff_v5.2.gff3.gz \
+    --host_genome ~/human_genome/t2t/T2T-CHM13v2.0_renamed.fa \
+    --patient_dir ~/BMG/smithlab/STC_1621_ST153_Uganda/ \
+    --viral_genomes ~/viral_genome/hiv_genome_panal/ \
+    --outdir ./STC_1621_ST153_Uganda_Output \
+    -profile slurm \
+    -resume -bg
+
+~/nextflow run nf-core/scrnaseq \
+    -profile slurm \
+    --input metadata/citeseq_samplesheet_3_bigdata_fixed.csv \
+    --fasta /home/c0murr09/human_genome/hg38/GRCh38.primary_assembly.genome.fa \
+    --gtf /home/c0murr09/human_genome/hg38/gencode.v49.annotation.gtf \
+    --cellranger_vdj_index /home/c0murr09/human_genome/refdata-cellranger-vdj-GRCh38-alts-ensembl-7.1.0/ \
+    --fb_reference metadata/TotalSeq_C_Human_Universal_Cocktail_399905_Antibody_reference_UMI_counting.csv \
+    --protocol 10XV3 \
+    --aligner cellrangermulti \
+    --outdir cellrangermulti_nf_output_03_05_2026_2/ \
+    -bg -resume

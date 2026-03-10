@@ -1,5 +1,28 @@
 #!/bin/env nextflow
 nextflow.enable.dsl = 2
+ 
+// GFF converter 
+process GFFCONVERT {
+    publishDir "${params.outdir}/genome_files", mode: 'copy'
+    
+    container 'library://connmurr243/connmurr_viral/gffread.sif:latest'
+
+    input:
+        path(gff)
+
+    output:
+        path("*.gtf"), emit: gtf
+
+    script:
+        """
+        if [[ "${gff}" == *.gz ]]; then
+            gunzip -c ${gff} > gff_input.gff3
+            gffread gff_input.gff3 -T -o host.gtf
+        else
+            gffread ${gff} -T -o host.gtf
+        fi
+        """
+}
 
 // Unmask sequences (extract HIV-aligned segments)
 process UNMASK_SEQUENCES {

@@ -27,11 +27,18 @@ def helpMessage() {
     ========================================================================================
 
     Usage:
-        nextflow run main_v2.nf --host_genome GRCh38.fa --viral_genomes "panel/*.fa"
+        nextflow run main.nf --host_genome GRCh38.fa --viral_genomes "panel/*.fa"
 
     Required Arguments:
         --host_genome           Path to host genome FASTA
         --viral_genomes         Glob pattern for viral reference panel (e.g., "hiv_refs/*.fa")
+    
+    Annotation (optional but recommended):
+        --annotation            Host genome annotation file.
+                                Accepted formats (plain or .gz):
+                                  .gtf   – GTF (passed through directly)
+                                  .gff   – GFF
+                                  .gff3  – GFF3 (converted to GTF via gffread)
     
     Input Options (choose one):
         --patient_dir           Directory containing patient BAM/FASTQ files
@@ -60,17 +67,26 @@ def helpMessage() {
         -profile slurm    Use Slurm scheduler with Apptainer/Singularity
     
     Examples:
-        # Analyze patient sample
-        nextflow run viral_integration_smrt.nf \\
+        # Analyze patient sample (with GTF annotation)
+        nextflow run main.nf \\
             --patient_bam sample.bam \\
             --host_genome hg38.fa \\
-            --viral_genome HIV1.fa \\
+            --annotation chm13v2.0.gtf \\
+            --viral_genomes "hiv_refs/*.fa" \\
+            -profile slurm
+
+        # Analyze patient sample (with compressed GFF3 annotation)
+        nextflow run main.nf \\
+            --patient_bam sample.bam \\
+            --host_genome hg38.fa \\
+            --annotation chm13v2.0.gff3.gz \\
+            --viral_genomes "hiv_refs/*.fa" \\
             -profile slurm
         
         # Run simulation
-        nextflow run viral_integration_smrt.nf \\
+        nextflow run main.nf \\
             --host_genome hg38.fa \\
-            --viral_genome HIV1.fa \\
+            --viral_genomes "hiv_refs/*.fa" \\
             --n_integrations 20 \\
             --depth 50 \\
             -profile slurm
@@ -449,6 +465,7 @@ include { MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'
 include { CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
 include { COMBINE_RESULTS } from './bin/genomic_processes.nf'
 include { INTEGRATION_ANNOTATE } from './bin/integration_annotation.nf'
+include { CREATE_HTML_REPORT   } from './bin/integration_annotation.nf'
 
 workflow {
     // ==================================================================================
@@ -457,8 +474,7 @@ workflow {
     host_genome_ch = Channel.fromPath(params.host_genome, checkIfExists: true)
     viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
     viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
-    host_gtf_ch = params.gtf ? Channel.fromPath(params.gtf, checkIfExists: true) : Channel.empty()
-    host_gff_ch = params.gff ? Channel.fromPath(params.gff, checkIfExists: true) : Channel.empty()
+    annotation_ch = params.annotation ? Channel.fromPath(params.annotation, checkIfExists: true) : Channel.empty()
 
     // Script paths
     script_dir = "${projectDir}/bin"
@@ -468,6 +484,7 @@ workflow {
     combine_script_ch = Channel.fromPath("${script_dir}/combine_hiv_V2b.py", checkIfExists: true)
     annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam_v2.R", checkIfExists: true)
     blast_script_ch = Channel.fromPath("${script_dir}/findViralGenes.pl", checkIfExists: true)
+    report_script_ch = Channel.fromPath("${script_dir}/create_report.R", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads (simulation or patient-based data) and GFF converter
@@ -522,9 +539,9 @@ workflow {
                         tuple(sample_id, file)}
     }
 
-    // Run GFF to GTF converter
-    GFFCONVERT(host_gff_ch)
-    gtf_ch = host_gtf_ch.mix(GFFCONVERT.out.gtf).first()
+    // Convert/pass-through annotation file to GTF regardless of input format
+    GFFCONVERT(annotation_ch)
+    gtf_ch = GFFCONVERT.out.gtf.first()
 
     // RUN FastQC
     FASTQC(input_reads_ch)
@@ -607,6 +624,12 @@ workflow {
                          annotate_script_ch.first(),
                          blast_script_ch.first(),
                          gtf_ch)
+
+    // Collect all annotated CSVs and produce a unified HTML report
+    CREATE_HTML_REPORT(
+        INTEGRATION_ANNOTATE.out.csv.collect(),
+        report_script_ch.first()
+    )
 
     // At the very end of the workflow, collect all QC outputs
     MULTIQC(FASTQC.out.zip

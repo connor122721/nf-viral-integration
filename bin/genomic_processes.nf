@@ -202,19 +202,11 @@ process COMBINE_RESULTS {
     output:
         tuple val(sample_id), path("*.tab"), emit: tab
         tuple val(sample_id), path("*.csv"), emit: csv
-        tuple val(sample_id), path("*.rtf")
         tuple val(sample_id), path("*.log")
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
-        """
-        # Link flanks file with both naming conventions
-        # ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*flanks.sam ${sample_id_i}.flanks.sam
-        # Link human filtered file with both naming conventions
-        # ln -sf ${params.outdir}/03_flank_host_mapping/${sample_id_i}*human.filtered.sam ${sample_id_i}.human.filtered.sam
-        # ln -sf ${flank_sam} ${sample_id_i}.flanks.sam
-        # ln -sf ${host_sam} ${sample_id_i}.human.filtered.sam
-        
+        """        
         # Input files
         echo ${sample_id}
         echo ${flank_sam}

@@ -120,7 +120,7 @@ module load singularity
 cd sif
 singularity pull docker://biocontainers/genometools:v1.5.10ds-3-deb_cv1
 
-# Convert
+# Convert (This is an automated process in the pipleine now)
 gunzip chm13v2.0_RefSeq_Liftoff_v5.2.gff3.gz
 singularity exec genometools_v1.5.10ds-3-deb_cv1.sif \\
   gt gff3_to_gtf chm13v2.0_RefSeq_Liftoff_v5.2.gff3 > chm13v2.0_RefSeq_Liftoff_v5.2.gtf
@@ -156,7 +156,7 @@ module load nextflow
 # Run pipeline
 nextflow run main.nf \
   --host_genome /path/to/host.fa.gz \
-  --gtf /path/to/host.gtf \
+  --annotation /path/to/host.gtf \
   -profile test,singularity \
   -resume \
   -bg 
@@ -176,10 +176,10 @@ module load nextflow
 
 # Run pipeline
 nextflow run main.nf \
-  --patient_dir /path/to/data/* \
+  --patient_dir /path/to/data/ \
   --host_genome /path/to/host.fa.gz \
-  --gtf /path/to/host.gtf \
-  --viral_genomes /path/to/hiv_panel.fa \
+  --annotation /path/to/host.gtf \
+  --viral_genomes /path/to/*.fa \
   --outdir ./nf_output \
   -profile slurm,singularity \
   -resume \
@@ -195,10 +195,10 @@ module load nextflow
 
 # Run pipeline
 nextflow run connor122721/nf-viral-integration -latest \ 
-  --patient_dir /path/to/data/* \
+  --patient_dir /path/to/data/ \
   --host_genome /path/to/host.fa \
-  --gtf /path/to/host.gtf \
-  --viral_genomes /path/to/hiv_panel.fa \
+  --annotation /path/to/host.gtf \
+  --viral_genomes /path/to/*hiv.fa \
   --outdir ./nf_output \
   -profile slurm,singularity \
   -resume \
@@ -218,7 +218,7 @@ This pipeline detects viral integration sites through:
 - **PacBio HiFi reads**: FASTQ or BAM format
     -  We assume all samples are demultiplexed and adaptors are removed!
 - **Host genome**: FASTA reference (e.g., hg38, t2t)
-- **Viral references**: Multi-FASTA with viral genomes
+- **Viral references**: Several FASTAs with viral whole-genomes
 - **Nextflow config**: Edited so it handles your HPC/compute environment
 
 ### Example Viral Reference Panel
@@ -233,6 +233,24 @@ HIV-2.fa
 SIV.fa
 ```
 
+- We provide you with a reference panel so that you can plug and play!
+```
+> ls ./nf-viral-integration_t2t/data/hiv_genome_panel_broad | sort
+
+01_AE.JP.1993.NH25_93JPNH25T_93JP_NH2_5T.AB070352.fasta
+C.ZM.2002.02ZM112.AB254144.fasta
+D.UG.2005.p190049.JX236668.fasta
+F1.RO.1996.BCI_R07.AB485658.fasta
+H.CD.2004.LA19KoSa.KU168273.fasta
+J.CD.2003.LA26DiAn.KU168280.fasta
+Ref.A1.UG.92.92UG037_A40.AB253429.fasta
+Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.fasta
+Ref.G.BE.96.DRCBL.AF084936.fasta
+```
+
+- To specify this panel for your work just change: 
+```--viral_genomes ./nf-viral-integration_t2t/data/hiv_genome_panel_broad/*fasta``` setting in ```nextflow.config```
+
 ## Output Structure
 ```
 output/
@@ -240,14 +258,16 @@ output/
 ├── 02_iterative_masking/    # Exhaustive viral alignments
 ├── 03_flank_host_mapping/   # Host genome alignments
 └── 04_final_results/        # Detected integrations summary statistics
+└── 05_report/               # HTML summary of the integration results
 ```
 
 ## Key Parameters
 ```bash
---patient_dir        # Input HiFi reads (FASTQ/BAM)
---host_genome        # Host reference genome (FASTA)
---viral_refs         # Viral reference genome(s) (FASTA)
---outdir             # Output directory [default: ./results]
+--patient_dir    # Input HiFi reads (FASTQ/BAM)
+--host_genome    # Host reference genome (FASTA)
+--viral_genomes  # Viral reference genome(s) (FASTA)
+--annotation     # Host gene annotations (GTF / GFF3)
+--outdir         # Output directory [default: ./results]
 ```
 
 ## Container Profiles

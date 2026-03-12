@@ -8,6 +8,8 @@ bin/__pycache__/
 
 output_test/
 output*/
+*out*/
+SL*/
 dev*/
 work/
 future/

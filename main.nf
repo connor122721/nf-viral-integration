@@ -4,7 +4,6 @@
 ========================================================================================
     Viral Integration Detection Pipeline
 ========================================================================================
-    Version: 0.2
     By: Connor S. Murray, PhD
     Based on: SMRTCap methodology (Smith Lab, University of Louisville)
 
@@ -23,17 +22,17 @@ nextflow.enable.dsl = 2
 def helpMessage() {
     log.info"""
     ========================================================================================
-    VIRAL INTEGRATION DETECTION PIPELINE v0.2
+    VIRAL INTEGRATION DETECTION PIPELINE 
     ========================================================================================
 
     Usage:
-        nextflow run main.nf --host_genome GRCh38.fa --viral_genomes "panel/*.fa"
+        nextflow run main.nf --host_genome GRCh38.fa --viral_genomes "panel/*.fa" --annotation host.gtf
 
     Required Arguments:
         --host_genome           Path to host genome FASTA
         --viral_genomes         Glob pattern for viral reference panel (e.g., "hiv_refs/*.fa")
     
-    Annotation (optional but recommended):
+    Host Genome Annotation:
         --annotation            Host genome annotation file.
                                 Accepted formats (plain or .gz):
                                   .gtf   – GTF (passed through directly)
@@ -64,7 +63,7 @@ def helpMessage() {
         --outdir                Output directory [default: ./output]
     
     Profiles:
-        -profile slurm    Use Slurm scheduler with Apptainer/Singularity
+        -profile slurm,singularity    Use Slurm scheduler with Apptainer/Singularity
     
     Examples:
         # Analyze patient sample (with GTF annotation)
@@ -73,7 +72,7 @@ def helpMessage() {
             --host_genome hg38.fa \\
             --annotation chm13v2.0.gtf \\
             --viral_genomes "hiv_refs/*.fa" \\
-            -profile slurm
+            -profile slurm,singularity
 
         # Analyze patient sample (with compressed GFF3 annotation)
         nextflow run main.nf \\
@@ -81,15 +80,15 @@ def helpMessage() {
             --host_genome hg38.fa \\
             --annotation chm13v2.0.gff3.gz \\
             --viral_genomes "hiv_refs/*.fa" \\
-            -profile slurm
+            -profile slurm,singularity
         
-        # Run simulation
+        # Run simulation (generates a simulated hifi sample with whole-viral integrations)
         nextflow run main.nf \\
             --host_genome hg38.fa \\
             --viral_genomes "hiv_refs/*.fa" \\
             --n_integrations 20 \\
-            --depth 50 \\
-            -profile slurm
+            --depth 30 \\
+            -profile slurm,singularity
     ========================================================================================
     """.stripIndent()
 }
@@ -109,6 +108,7 @@ log.info "HIV SMRTCap INTEGRATION DETECTION PIPELINE"
 log.info "========================================================================================"
 log.info "Host genome       : ${params.host_genome}"
 log.info "Viral genomes     : ${params.viral_genomes ?: params.viral_genome}"
+log.info "Host annotation   : ${params.annotation}"
 log.info "Min MAPQ          : ${params.min_mapq}"
 log.info "Max iterations    : ${params.max_iterations}"
 log.info "Output directory  : ${params.outdir}"
@@ -465,7 +465,7 @@ include { MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'
 include { CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
 include { COMBINE_RESULTS } from './bin/genomic_processes.nf'
 include { INTEGRATION_ANNOTATE } from './bin/integration_annotation.nf'
-include { CREATE_HTML_REPORT   } from './bin/integration_annotation.nf'
+include { CREATE_HTML_REPORT } from './bin/integration_annotation.nf'
 
 workflow {
     // ==================================================================================
@@ -473,7 +473,6 @@ workflow {
     // ==================================================================================
     host_genome_ch = Channel.fromPath(params.host_genome, checkIfExists: true)
     viral_genomes_ch = Channel.fromPath(params.viral_genomes, checkIfExists: true)
-    viral_genomes_list = Channel.fromPath(params.viral_genomes, checkIfExists: true).collect()
     annotation_ch = params.annotation ? Channel.fromPath(params.annotation, checkIfExists: true) : Channel.empty()
 
     // Script paths
@@ -618,18 +617,22 @@ workflow {
     // ==================================================================================
     // STEP 4: Annotate integrate sites in host genome 
     // ==================================================================================
-    INTEGRATION_ANNOTATE(COMBINE_RESULTS.out.csv,
-                         SELECT_BEST_REFERENCE.out.best_ref_fa,
-                         UNMASK_SEQUENCES.out.fasta,
+    
+    // Join all per-sample INTEGRATION_ANNOTATE inputs on sample_id
+    annotate_input = COMBINE_RESULTS.out.csv
+        .join(SELECT_BEST_REFERENCE.out.best_ref_fa)
+        .join(UNMASK_SEQUENCES.out.fasta)
+        .join(ITERATIVE_MAPPING.out.iteration_1_sam)
+
+    // Run annotation pipeline per-sample
+    INTEGRATION_ANNOTATE(annotate_input,
                          annotate_script_ch.first(),
                          blast_script_ch.first(),
                          gtf_ch)
 
-    // Collect all annotated CSVs and produce a unified HTML report
-    CREATE_HTML_REPORT(
-        INTEGRATION_ANNOTATE.out.csv.collect(),
-        report_script_ch.first()
-    )
+    // Collect all COMBINED CSVs (contain gene/intactness columns) for report
+    CREATE_HTML_REPORT(INTEGRATION_ANNOTATE.out.csv.collect(),
+                       report_script_ch.first())
 
     // At the very end of the workflow, collect all QC outputs
     MULTIQC(FASTQC.out.zip
@@ -651,7 +654,8 @@ workflow.onComplete {
     log.info "Key Results:"
     log.info "  01_reference_selection/   - Best viral reference & initial mapping"
     log.info "  02_iterative_masking/     - Iterative viral masking (until no reads left)"
-    log.info "  04_final_results/            - Integration sites in human genome"
+    log.info "  04_final_results/         - Integration sites in human genome"
+    log.info "  05_report/                - Integration sites html report/summary"
     log.info ""
     log.info "Integration Sites:"
     log.info "  ${params.outdir}/04_final_results/*integration_sites.txt"

@@ -18,8 +18,6 @@ process INTEGRATION_ANNOTATE {
         path("*combined.csv"), emit: csv
         path("*nwk"), emit: nwk, optional: true
         path("*txt"), emit: txt
-        path("*pdf"), emit: pdf, optional: true
-        path("*png"), emit: png, optional: true
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
@@ -39,8 +37,8 @@ process INTEGRATION_ANNOTATE {
         # Make tmp directory
         mkdir -p ${projectDir}/tmp
 
-        # Run blast perl script
-        perl ${blast_script} \\
+        # Run blast proviral script
+        Rscript ${blast_script} \\
             --prefix ${projectDir} \\
             --in ${unmasked_fa} \\
             --virus HIV \\
@@ -52,14 +50,14 @@ process INTEGRATION_ANNOTATE {
             sed 's|/ccs/[0-9]*|/ccs|' > ${sample_id_i}.viral.csv
 
         # Sort both files on the join column
-        sort -t',' -k9,9 ${sample_id_i}_annotated.csv > sorted1.csv
+        sort -t',' -k7,7 ${sample_id_i}_annotated.csv > sorted1.csv
         sort -t',' -k1,1 ${sample_id_i}.viral.csv > sorted2.csv
 
-        # Join on column 9 of file1 and column 1 of file2
-        join -t',' -1 9 -2 1 sorted1.csv sorted2.csv > ${sample_id_i}.combined.csv
+        # Join on column 7 of file1 and column 1 of file2
+        join -t',' -1 7 -2 1 sorted1.csv sorted2.csv > ${sample_id_i}.combined.csv
 
         # Add header hardcoded
-        echo "READ,RTF_NUM,HUMAN_GROUP,INSERT,INSERT_LEN,LEFT_FLANK,RIGHT_FLANK,HUMAN_CHECK,HUMAN_ALTS,HIV_DIR_ERR,FLANK_DIR_ERR,HUMAN_MAP_ERR,OVERLAP_ERR,UNMAPPED,viral_sequence,viral_seq_length,viral_orientation,viral_strand,alignment_score,ref_start,ref_end,percent_identity,integration_site,viral_region,chromosome,sample,gene_name,gene_id,STRAND,GENE_MATCH_STRING,MATCH_TYPE,IPDA_INTACT,IPDA_V2_INTACT,COMPLETE_5PRIME,N_GAPS_5PRIME,N_GAPS_3PRIME,N_GAPS_TOTAL,COMPLETE_3PRIME,EPISOME_FLAG" > header
+        echo "READ,INSERT,INSERT_LEN,LEFT_FLANK,RIGHT_FLANK,HUMAN_CHECK,HUMAN_ALTS,viral_sequence,viral_seq_length,viral_orientation,viral_strand,alignment_score,ref_start,ref_end,percent_identity,integration_site,viral_region,chromosome,sample,gene_name,gene_id,site_key,clone_id,reads_at_site,clone_class,is_pcr_replicate,mean_within_pid,STRAND,GENE_MATCH_STRING,MATCH_TYPE,IPDA_INTACT,IPDA_V2_INTACT,COMPLETE_5PRIME,N_GAPS_5PRIME,N_GAPS_3PRIME,N_GAPS_TOTAL,COMPLETE_3PRIME,EPISOME_FLAG" > header
         cat header ${sample_id_i}.combined.csv > ${sample_id_i}.combined.tmp.csv
         mv ${sample_id_i}.combined.tmp.csv ${sample_id_i}.combined.csv
 

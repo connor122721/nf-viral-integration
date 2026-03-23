@@ -7,25 +7,20 @@
 #       <input.csv> <unmasked.fasta> <hiv_ref.fasta> <gtf> \
 #       <output_prefix> [iteration1.sam]
 #
-# The optional 6th argument is the path to the iteration-1 SAM file
-# (e.g. sampleID.dedup.1.sam).  When supplied orientation is read directly
-# from FLAG bits.  When absent the k-mer fallback handles all sequences.
-#
 # Output
 # ------
-#   <prefix>_annotated.csv          – per-read annotated table
+#   <prefix>_annotated.csv          – per-read annotated table (includes clone_id, clone_class)
 #   <prefix>_viral_sequences.fasta  – extracted viral sequences (FASTA)
-#   <prefix>_similarity_matrix.csv  – pairwise % identity matrix
+#   <prefix>_clone_summary.csv      – one row per clone/unique site
+#   <prefix>_similarity_matrix.csv  – pairwise % identity matrix (alignment-based)
 #   <prefix>_report.txt             – plain-text summary
 
-suppressPackageStartupMessages({
-  library(tidyverse)
-  library(data.table)
-  library(Biostrings)
-  library(GenomicRanges)
-  library(rtracklayer)
-  library(ape)
-})
+library(tidyverse)
+library(data.table)
+library(Biostrings)
+library(GenomicRanges)
+library(rtracklayer)
+library(ape)
 
 # ============================================================================
 # 0. Arguments
@@ -50,14 +45,14 @@ iter1_sam <- if (length(args) >= 6) args[6] else NULL
 # input_csv="X:/nf-viral-integration_t2t/test_results/04_final_results/92UG_029.subset.csv"; input_fasta="X:/nf-viral-integration_t2t/test_results/unmasked_sequences/92UG_029.subset.unmasked.fa"; hiv_ref_fasta="X:/nf-viral-integration_t2t/data/hiv_genome_panal/A1.UG..UG031.AB098330.fasta"; gtf_file="X:/nf-viral-integration_t2t/test_results/genome_files/host.gtf"; output_prefix="test1"; iter1_sam="X:/nf-viral-integration_t2t/test_results/02_iterative_masking/92UG_029.subset/92UG_029.subset.dedup.1.sam"
 
 cat("\n", strrep("=", 70), "\n")
-cat("VIRAL ORIENTATION AND GENOMIC ANNOTATION ANALYSIS (v3 – SAM/k-mer)\n")
+cat("VIRAL ORIENTATION AND GENOMIC ANNOTATION ANALYSIS\n")
 cat(strrep("=", 70), "\n\n")
 
 # ============================================================================
 # STEP 1: Read CSV data
 # ============================================================================
 cat("Step 1: Reading integration data...\n")
-df <- read_csv(input_csv, show_col_types = FALSE) %>%
+df <- fread(input_csv) %>%
   filter(INSERT_LEN >= 200)
 cat(sprintf("  - Total reads with INSERT_LEN >= 200: %d\n", nrow(df)))
 
@@ -127,9 +122,9 @@ if (!is.null(iter1_sam) && file.exists(iter1_sam)) {
     # ---------------------------------------------------------------------------
     cigar_ref_len <- function(cig) {
       if (is.na(cig) || cig == "*") return(NA_integer_)
-      ops    <- base::regmatches(cig, base::gregexpr("[0-9]+[MIDNSHPX=]", cig))[[1]]
+      ops <- base::regmatches(cig, base::gregexpr("[0-9]+[MIDNSHPX=]", cig))[[1]]
       widths <- as.integer(sub("[A-Z=]$", "", ops))
-      types  <- sub("^[0-9]+",  "", ops)
+      types <- sub("^[0-9]+",  "", ops)
       sum(widths[types %in% c("M","D","N","X","=")])
     }
 
@@ -199,10 +194,10 @@ if (nrow(sam_orient) > 0) {
     left_join(sam_orient,
               by = c("read_id_base" = "read_id"),
               suffix = c("", "_sam")) %>%
-    mutate(strand           = coalesce(strand_sam,           strand),
-           orientation      = coalesce(orientation_sam,      orientation),
-           ref_start        = coalesce(ref_start_sam,        ref_start),
-           ref_end          = coalesce(ref_end_sam,          ref_end),
+    mutate(strand = coalesce(strand_sam, strand),
+           orientation = coalesce(orientation_sam, orientation),
+           ref_start = coalesce(ref_start_sam, ref_start),
+           ref_end = coalesce(ref_end_sam, ref_end),
            percent_identity = coalesce(percent_identity_sam, percent_identity)) %>%
     dplyr::select(-ends_with("_sam"))
 }
@@ -217,9 +212,9 @@ if (nrow(sam_orient) > 0) {
 cat("  - Building k-mer index from HIV reference for fallback orientation...\n")
 ref_seq <- as.character(hiv_ref[[1]])
 ref_len <- nchar(ref_seq)
-K <- 21L
-SAMPLE_STEP <- 50L
-KMER_REGION <- min(1000L, floor(ref_len / 3))
+K <- 21
+SAMPLE_STEP <- 50
+KMER_REGION <- min(1000, floor(ref_len / 3))
 
 build_kmer_set <- function(region_seq) {
   starts <- seq(1L, nchar(region_seq) - K, by = SAMPLE_STEP)
@@ -289,7 +284,7 @@ if (nrow(needs_fallback) > 0) {
 ori_table <- seq_lookup %>% count(orientation) %>% arrange(desc(n))
 cat("  - Orientation summary:\n")
 for (i in seq_len(nrow(ori_table))) {
-  cat(sprintf("      %-12s: %d\n", ori_table$orientation[i], ori_table$n[i]))
+  cat(sprintf(" %-12s: %d\n", ori_table$orientation[i], ori_table$n[i]))
 }
 
 # ============================================================================
@@ -314,7 +309,9 @@ df <- data.table(df %>%
                     alignment_score,
                     ref_start, ref_end, percent_identity),
     by = c("read_match" = "read_id")) %>%
-  dplyr::select(-read_match))
+  dplyr::select(-c(read_match, RTF_NUM, HUMAN_GROUP, 
+                HIV_DIR_ERR, FLANK_DIR_ERR, HUMAN_MAP_ERR, 
+                OVERLAP_ERR, UNMAPPED)))
 
 # ============================================================================
 # STEP 6: Parse genomic locations
@@ -438,9 +435,280 @@ if (nrow(integration_data) > 0) {
 }
 
 # ============================================================================
-# STEP 8: Sequence similarity matrix (k-mer based)
+# STEP 8: Clone / PCR-replicate classification
+#
+# Hierarchical approach:
+#   Tier 1 – INTEGRATION SITE:  reads at the same chr:position within a
+#            sample are PCR / technical replicates (same proviral molecule
+#            amplified multiple times).  These get the same clone_id.
+#   Tier 2 – SEQUENCE SIMILARITY:  among reads at the *same* site (tier-1
+#            groups), confirm by pairwise alignment.  High identity (≥97%)
+#            confirms PCR duplicate; lower identity at the same site flags
+#            a rare "same-site divergent".
+#   Tier 3 – CLONAL EXPANSION:  reads at *different* sites whose proviral
+#            sequences share ≥95% identity could indicate the same founder
+#            virus integrated independently (or tandem integrations).  This
+#            is flagged but NOT collapsed — the user decides.
+#
+# Clone naming: {sample}_{N}  e.g. P12_2_clone_1, P12_2_clone_2 ...
 # ============================================================================
-cat("\nStep 8: Sequence similarity analysis (k-mer Jaccard)...\n")
+cat("\nStep 8: Clone / PCR-replicate classification...\n")
+
+sample_name <- sub("\\.csv$", "", basename(input_csv))
+
+# --- 8a. Build canonical site key ----------------------------------------
+if (all(c("integration_site", "chromosome") %in% colnames(df))) {
+  df <- df %>%
+    mutate(
+      site_key = case_when(
+        is.na(integration_site) | is.na(chromosome) ~ NA_character_,
+        TRUE ~ paste0(as.character(chromosome), ":",
+                      str_extract(integration_site, "\\d+"))))
+} else {
+  df <- df %>% mutate(site_key = NA_character_)
+}
+
+# --- 8b. Assign clone_id per unique site_key ----------------------------
+#     Unique sites get sequential clone numbers; episomal reads get NA.
+site_keys_present <- df %>%
+  filter(!is.na(site_key)) %>%
+  distinct(site_key) %>%
+  arrange(site_key) %>%
+  mutate(clone_id = paste0(sample_name, "_clone_", row_number()))
+
+df <- df %>%
+  left_join(site_keys_present, by = "site_key")
+
+# Count reads at each site
+site_counts <- df %>%
+  filter(!is.na(site_key)) %>%
+  count(site_key, name = "reads_at_site")
+
+df <- df %>%
+  left_join(site_counts, by = "site_key") %>%
+  mutate(
+    clone_class = case_when(
+      is.na(site_key) ~ "episomal",
+      reads_at_site == 1 ~ "unique integration",
+      reads_at_site > 1 ~ "technical replicate"),
+    is_pcr_replicate = (!is.na(reads_at_site) & reads_at_site > 1))
+
+n_unique_clones <- n_distinct(df$clone_id, na.rm = TRUE)
+n_pcr_reads     <- sum(df$is_pcr_replicate, na.rm = TRUE)
+cat(sprintf("  - Unique integration sites (clones): %d\n", n_unique_clones))
+cat(sprintf("  - PCR replicate reads (same site):   %d\n", n_pcr_reads))
+
+# --- 8c. Alignment-based sequence similarity within site groups ----------
+#     For each site with >1 read, align all reads to the first read in the
+#     group (representative).  This confirms PCR-dup status and flags
+#     divergent reads at the same site.
+
+cat("  - Computing within-site alignment similarities...\n")
+
+# Helper: pairwise % identity via Biostrings local alignment
+safe_pairwise_pid <- function(s1, s2, max_len = 5000L) {
+  # Truncate to max_len for speed (SMRTCap reads can be long)
+  s1_t <- subseq(DNAString(s1), 1L, min(nchar(s1), max_len))
+  s2_t <- subseq(DNAString(s2), 1L, min(nchar(s2), max_len))
+  tryCatch({
+    aln <- pairwiseAlignment(s1_t, s2_t,
+                              type = "local",
+                              substitutionMatrix = nucleotideSubstitutionMatrix(
+                                match = 1, mismatch = -1, baseOnly = TRUE),
+                              gapOpening = 5, gapExtension = 2)
+    # pid = (aligned length - mismatches - indels) / aligned length
+    aln_len <- nchar(aln)
+    if (aln_len == 0) return(0)
+    round(pid(aln), 2)
+  }, error = function(e) NA_real_)
+}
+
+# Within-site comparison
+within_site_results <- tibble()
+multi_read_sites <- df %>%
+  filter(!is.na(site_key), reads_at_site > 1) %>%
+  distinct(site_key) %>%
+  pull(site_key)
+
+if (length(multi_read_sites) > 0) {
+  ws_list <- list()
+  for (sk in multi_read_sites) {
+    grp <- df %>%
+      filter(site_key == sk, !is.na(viral_sequence), nchar(viral_sequence) >= 100)
+    if (nrow(grp) < 2) next
+
+    ref_seq <- grp$viral_sequence[1]
+    ref_read <- grp$READ[1]
+
+    for (i in 2:nrow(grp)) {
+      p <- safe_pairwise_pid(ref_seq, grp$viral_sequence[i])
+      ws_list[[length(ws_list) + 1]] <- tibble(
+        site_key = sk,
+        read_A = ref_read,
+        read_B = grp$READ[i],
+        pct_identity = p,
+        same_site = TRUE,
+        classification = case_when(
+          is.na(p) ~ "undetermined",
+          p >= 95 ~ "technical replicate",
+          p >= 90 ~ "same-site divergent (possible hypermutation)",
+          TRUE ~ "same-site highly divergent (possible mixed infection)"))
+    }
+  }
+  within_site_results <- bind_rows(ws_list)
+  cat(sprintf("  - Within-site comparisons: %d pairs\n", nrow(within_site_results)))
+
+  # Update clone_class for divergent reads at same site
+  divergent_reads <- within_site_results %>%
+    filter(!is.na(pct_identity), pct_identity < 97) %>%
+    pull(read_B)
+
+  if (length(divergent_reads) > 0) {
+    df <- df %>%
+      mutate(clone_class = if_else(
+        READ %in% divergent_reads & clone_class == "technical replicate",
+        "same-site divergent",
+        clone_class))
+    cat(sprintf("  - Same-site divergent reads reclassified: %d\n",
+                length(divergent_reads)))
+  }
+}
+
+# --- 8d. Cross-site clonal expansion detection ---------------------------
+#     Among unique-site representative reads, compute pairwise alignment
+#     similarity.  Pairs with ≥95% identity at *different* sites may
+#     indicate clonal expansion from the same founder virus.
+
+cat("  - Checking for cross-site clonal expansion...\n")
+
+# Take one representative read per clone (longest viral sequence)
+clone_reps <- df %>%
+  filter(!is.na(clone_id), !is.na(viral_sequence), nchar(viral_sequence) >= 500) %>%
+  group_by(clone_id) %>%
+  slice_max(viral_seq_length, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+n_reps <- nrow(clone_reps)
+cross_site_results <- tibble()
+
+# Only compute if tractable (≤100 clones → ≤4950 pairs)
+CROSS_SITE_MAX_CLONES <- 100L
+CROSS_SITE_IDENTITY_THRESHOLD <- 95.0
+
+if (n_reps >= 2 && n_reps <= CROSS_SITE_MAX_CLONES) {
+  cat(sprintf("  - Comparing %d clone representatives pairwise...\n", n_reps))
+  cs_list <- list()
+  for (i in seq_len(n_reps - 1)) {
+    for (j in (i + 1):n_reps) {
+      p <- safe_pairwise_pid(clone_reps$viral_sequence[i],
+                              clone_reps$viral_sequence[j])
+      if (!is.na(p) && p >= CROSS_SITE_IDENTITY_THRESHOLD) {
+        cs_list[[length(cs_list) + 1]] <- tibble(
+          clone_A = clone_reps$clone_id[i],
+          clone_B = clone_reps$clone_id[j],
+          site_A = clone_reps$site_key[i],
+          site_B = clone_reps$site_key[j],
+          pct_identity = p,
+          note = "possible clonal expansion (same virus, different site)")
+      }
+    }
+  }
+  cross_site_results <- bind_rows(cs_list)
+  if (nrow(cross_site_results) > 0) {
+    cat(sprintf("  - Cross-site clonal candidates: %d pairs (>= %.0f%% identity)\n",
+                nrow(cross_site_results), CROSS_SITE_IDENTITY_THRESHOLD))
+  } else {
+    cat("  - No cross-site clonal expansion detected.\n")
+  }
+} else if (n_reps > CROSS_SITE_MAX_CLONES) {
+  cat(sprintf("  - Skipping cross-site comparison (%d clones > %d limit)\n",
+              n_reps, CROSS_SITE_MAX_CLONES))
+}
+
+# ============================================================================
+# STEP 8e: Within-group PID + reference-coordinate similarity matrix
+#
+# Two-part approach:
+#   A) Within-group PID:  For each clone/PCR group (small N), compute all
+#      pairwise alignment PIDs and store the group mean.  This is the gold
+#      standard for confirming PCR duplicates vs divergent reads.
+#   B) Full similarity matrix (≤200 seqs):  Use reference-coordinate overlap
+#      for speed.  Two sequences that map to overlapping regions on the HIV
+#      reference are compared by k-mer identity over their shared window.
+#      Sequences with no reference-coordinate overlap get NA (not 0 — they
+#      simply can't be compared meaningfully).
+# ============================================================================
+cat("\nStep 8e: Within-group PID and similarity matrix...\n")
+
+# --- A) Within-group (clone/PCR) pairwise alignment PID ------------------
+#     For each site_key with ≥2 reads, compute all pairwise PIDs and store
+#     the mean.  This uses safe_pairwise_pid (local alignment, accurate but
+#     slow — fine here because groups are small).
+
+cat("  - Computing within-group pairwise PIDs...\n")
+
+within_group_pids <- tibble()
+all_site_keys <- df %>%
+  filter(!is.na(site_key), !is.na(viral_sequence), nchar(viral_sequence) >= 100) %>%
+  count(site_key) %>%
+  filter(n >= 2) %>%
+  pull(site_key)
+
+if (length(all_site_keys) > 0) {
+  wg_list <- list()
+  for (sk in all_site_keys) {
+    grp <- df %>%
+      filter(site_key == sk, !is.na(viral_sequence), nchar(viral_sequence) >= 100)
+    n_grp <- nrow(grp)
+    if (n_grp < 2) next
+
+    pair_pids <- numeric(0)
+    for (i in seq_len(n_grp - 1)) {
+      for (j in (i + 1):min(n_grp, i + 10)) {  # cap at 10 pairs per read for speed
+        p <- safe_pairwise_pid(grp$viral_sequence[i], grp$viral_sequence[j])
+        if (!is.na(p)) pair_pids <- c(pair_pids, p)
+      }
+    }
+
+    if (length(pair_pids) > 0) {
+      wg_list[[length(wg_list) + 1]] <- tibble(
+        site_key = sk,
+        clone_id = grp$clone_id[1],
+        n_reads_in_group = n_grp,
+        n_pairs_compared = length(pair_pids),
+        mean_within_pid = round(mean(pair_pids), 2),
+        min_within_pid = round(min(pair_pids), 2),
+        max_within_pid = round(max(pair_pids), 2))
+    }
+  }
+  within_group_pids <- bind_rows(wg_list)
+
+  if (nrow(within_group_pids) > 0) {
+    cat(sprintf("  - Within-group PID computed for %d clone groups\n",
+                nrow(within_group_pids)))
+    cat(sprintf("  - Overall mean within-group PID: %.1f%%\n",
+                mean(within_group_pids$mean_within_pid)))
+
+    # Merge mean_within_pid back into df via site_key
+    df <- df %>%
+      left_join(within_group_pids %>%
+                  dplyr::select(site_key, mean_within_pid),
+                by = "site_key")
+  } else {
+    df <- df %>% mutate(mean_within_pid = NA_real_)
+  }
+} else {
+  cat("  - No multi-read sites to compare.\n")
+  df <- df %>% mutate(mean_within_pid = NA_real_)
+}
+
+# --- B) Full similarity matrix -------------------------------------------
+#     Reference-coordinate-aware k-mer identity.
+#     Strategy: for each pair of sequences, check if their viral reference
+#     coordinates overlap.  If yes, extract the overlapping sub-sequences
+#     and compute k-mer containment (proportion of k-mers shared).
+#     If no overlap (different viral regions), mark as NA.
+#     This is O(n²) in comparisons but each comparison is fast (no alignment).
 
 unique_seqs <- df %>%
   filter(!is.na(viral_sequence), viral_seq_length >= 100) %>%
@@ -448,92 +716,181 @@ unique_seqs <- df %>%
 
 cat(sprintf("  - Unique viral sequences (>= 100 bp): %d\n", nrow(unique_seqs)))
 
-# Save viral sequences regardless
+# Save viral sequences
 viral_seqs <- DNAStringSet(unique_seqs$viral_sequence)
-names(viral_seqs) <- paste0("seq", seq_along(viral_seqs), "_",
-                             unique_seqs$viral_orientation, "_",
-                             str_sub(unique_seqs$READ, 1, 30))
+names(viral_seqs) <- paste0(
+  ifelse(!is.na(unique_seqs$clone_id), unique_seqs$clone_id, "episomal"),
+  "_", unique_seqs$viral_orientation,
+  "_", str_sub(unique_seqs$READ, 1, 30))
 viral_fasta_file <- paste0(output_prefix, "_viral_sequences.fasta")
 writeXStringSet(viral_seqs, viral_fasta_file)
 cat(sprintf("  - Saved viral sequences to: %s\n", viral_fasta_file))
 
-compute_kmer_similarity <- function(seqs, k = 8L) {
-  # Returns an n x n Jaccard-similarity matrix using k-mers
-  n <- length(seqs)
-  if (n < 2) return(diag(n))
+n_seqs <- length(viral_seqs)
+SIM_MATRIX_MAX <- 1000
 
-  kmer_sets <- lapply(seqs, function(s) {
-    sv <- as.character(s)
-    L <- nchar(sv)
-    if (L < k) return(character(0))
-    unique(substring(sv, 1:(L - k + 1), k:(L)))
-  })
-
-  mat <- diag(n)
-  rownames(mat) <- names(seqs)
-  colnames(mat) <- names(seqs)
-
-  for (i in seq_len(n - 1)) {
-    for (j in (i + 1):n) {
-      si <- kmer_sets[[i]]; sj <- kmer_sets[[j]]
-      if (length(si) == 0 || length(sj) == 0) next
-      inter <- length(intersect(si, sj))
-      union <- length(union(si, sj))
-      jac <- if (union > 0) inter / union else 0
-      mat[i, j] <- mat[j, i] <- jac
-    }
-  }
-  mat
+# k-mer containment function (fast, no alignment)
+kmer_identity <- function(s1, s2, k = 12L) {
+  if (nchar(s1) < k || nchar(s2) < k) return(NA_real_)
+  kmers1 <- unique(substring(s1, 1:(nchar(s1) - k + 1), k:(nchar(s1))))
+  kmers2 <- unique(substring(s2, 1:(nchar(s2) - k + 1), k:(nchar(s2))))
+  shared <- length(intersect(kmers1, kmers2))
+  # Containment: fraction of the smaller set found in the larger
+  denom <- min(length(kmers1), length(kmers2))
+  if (denom == 0) return(0)
+  round(100 * shared / denom, 2)
 }
 
-n_seqs <- length(viral_seqs)
+if (n_seqs >= 2 && n_seqs <= SIM_MATRIX_MAX) {
+  cat(sprintf("  - Computing %d x %d similarity matrix (k-mer containment, k=12)...\n",
+              n_seqs, n_seqs))
 
-if (n_seqs >= 2 && n_seqs <= 200) {
-  cat("  - Computing k-mer Jaccard similarity matrix (k=8)...\n")
-  sim_mat <- compute_kmer_similarity(viral_seqs, k = 8L)
+  # Extract ref coordinates for overlap checking
+  ref_starts <- unique_seqs$ref_start
+  ref_ends   <- unique_seqs$ref_end
+  seq_chars  <- as.character(viral_seqs)
+
+  sim_mat <- diag(100, n_seqs)
+  rownames(sim_mat) <- names(viral_seqs)
+  colnames(sim_mat) <- names(viral_seqs)
+
+  for (i in seq_len(n_seqs - 1)) {
+    for (j in (i + 1):n_seqs) {
+      # Check reference-coordinate overlap
+      has_coords <- !is.na(ref_starts[i]) && !is.na(ref_ends[i]) &&
+                    !is.na(ref_starts[j]) && !is.na(ref_ends[j])
+
+      if (has_coords) {
+        overlap_start <- max(ref_starts[i], ref_starts[j])
+        overlap_end   <- min(ref_ends[i], ref_ends[j])
+        overlap_len   <- overlap_end - overlap_start
+
+        if (overlap_len < 100) {
+          # No meaningful overlap — different viral regions
+          sim_mat[i, j] <- sim_mat[j, i] <- NA
+          next
+        }
+      }
+
+      # Compute k-mer containment identity
+      p <- kmer_identity(seq_chars[i], seq_chars[j], k = 12L)
+      sim_mat[i, j] <- p
+      sim_mat[j, i] <- p
+    }
+    if (n_seqs > 50 && i %% 20 == 0)
+      cat(sprintf("    ... row %d / %d\n", i, n_seqs))
+  }
 
   sim_file <- paste0(output_prefix, "_similarity_matrix.csv")
   write_csv(as_tibble(sim_mat, rownames = "sequence"), sim_file)
   cat(sprintf("  - Similarity matrix saved: %s\n", sim_file))
 
-  # Diversity: mean pairwise dissimilarity
+  # Diversity stats (excluding NA pairs — different-region comparisons)
   off_diag <- sim_mat[lower.tri(sim_mat)]
-  cat(sprintf("  - Mean pairwise similarity   : %.3f\n", mean(off_diag)))
-  cat(sprintf("  - Mean pairwise dissimilarity: %.3f\n", 1 - mean(off_diag)))
+  off_diag_valid <- off_diag[!is.na(off_diag)]
+  if (length(off_diag_valid) > 0) {
+    cat(sprintf("  - Comparable pairs          : %d / %d (%.0f%%)\n",
+                length(off_diag_valid), length(off_diag),
+                100 * length(off_diag_valid) / length(off_diag)))
+    cat(sprintf("  - Mean pairwise identity    : %.1f%%\n", mean(off_diag_valid)))
+    cat(sprintf("  - Median pairwise identity  : %.1f%%\n", median(off_diag_valid)))
+  }
 
-  # Heatmap (base R – no extra deps)
+  # Heatmap with clone annotations
   if (n_seqs <= 50) {
     heatmap_file <- paste0(output_prefix, "_similarity_heatmap.pdf")
+
+    # Replace NA with 0 for heatmap visualisation (mark as grey)
+    sim_mat_plot <- sim_mat
+    sim_mat_plot[is.na(sim_mat_plot)] <- 0
+
     pdf(heatmap_file, width = 12, height = 10)
-    heatmap(sim_mat,
-            main = "Viral Sequence k-mer Similarity",
+    heatmap(sim_mat_plot,
+            symm = TRUE,
             scale = "none",
-            col = colorRampPalette(c("blue", "white", "red"))(100),
+            col = colorRampPalette(c("#e9ecef", "#2166ac", "#f7f7f7", "#b2182b"))(100),
+            main = "Viral Sequence Similarity (k-mer Containment, k=12)\nGrey = no reference overlap (different viral regions)",
             margins = c(10, 10))
     dev.off()
     cat(sprintf("  - Heatmap saved: %s\n", heatmap_file))
   }
 
-  # NJ phylogenetic tree
+  # NJ tree (use only comparable pairs; set NA distances to max observed + 10)
   if (n_seqs >= 3 && n_seqs <= 100) {
     cat("  - Building NJ phylogenetic tree...\n")
-    dist_mat <- as.dist(1 - sim_mat)
-    tree <- nj(dist_mat)
-    tree_file <- paste0(output_prefix, "_tree.nwk")
-    write.tree(tree, tree_file)
-    tree_pdf <- paste0(output_prefix, "_tree.pdf")
-    pdf(tree_pdf, width = 12, height = max(8, n_seqs * 0.4))
-    plot(tree, cex = 0.7,
-         main = "Phylogenetic Tree – Viral Sequences (NJ, k-mer Jaccard)",
-         sub = "Distance = 1 − Jaccard similarity (k=8)")
-    add.scale.bar()
-    dev.off()
-    cat(sprintf("  - Tree saved: %s\n", tree_file))
+    dist_vals <- 100 - sim_mat
+    max_dist <- max(dist_vals, na.rm = TRUE) + 10
+    dist_vals[is.na(dist_vals)] <- max_dist
+    diag(dist_vals) <- 0
+    dist_mat <- as.dist(dist_vals)
+    tree <- tryCatch({
+      nj(dist_mat)
+    }, error = function(e) {
+      cat(sprintf("  - NJ tree failed: %s\n", conditionMessage(e)))
+      NULL
+    })
+    if (!is.null(tree)) {
+      tree_file <- paste0(output_prefix, "_tree.nwk")
+      write.tree(tree, tree_file)
+      tree_pdf <- paste0(output_prefix, "_tree.pdf")
+      pdf(tree_pdf, width = 12, height = max(8, n_seqs * 0.4))
+      plot(tree, cex = 0.7,
+           main = "Phylogenetic Tree – Viral Sequences (NJ, k-mer Containment Distance)",
+           sub = "Distance = 100 - % k-mer containment (k=12); NA pairs set to max distance")
+      add.scale.bar()
+      dev.off()
+      cat(sprintf("  - Tree saved: %s\n", tree_file))
+    }
   }
+} else if (n_seqs > SIM_MATRIX_MAX) {
+  cat(sprintf("  - Skipping full matrix (%d seqs > %d limit). ",
+              n_seqs, SIM_MATRIX_MAX))
+  cat("Clone/PCR classification still applied via site-based grouping.\n")
 }
 
 # ============================================================================
-# STEP 9: Console summary
+# STEP 9: Clone summary table
+# ============================================================================
+cat("\nStep 9: Building clone summary...\n")
+
+clone_summary <- df %>%
+  filter(!is.na(clone_id)) %>%
+  group_by(clone_id, site_key) %>%
+  summarise(
+    n_reads = n(),
+    n_pcr_replicates = sum(is_pcr_replicate, na.rm = TRUE),
+    representative_read = READ[which.max(viral_seq_length)],
+    chromosome = dplyr::first(na.omit(chromosome)),
+    integration_site = dplyr::first(na.omit(integration_site)),
+    gene_name = dplyr::first(na.omit(gene_name)),
+    viral_orientation = dplyr::first(na.omit(viral_orientation)),
+    mean_insert_len = round(mean(INSERT_LEN, na.rm = TRUE)),
+    mean_pct_identity_to_ref = round(mean(percent_identity, na.rm = TRUE), 1),
+    mean_within_group_pid = round(dplyr::first(na.omit(mean_within_pid)), 1),
+    .groups = "drop") %>%
+  arrange(desc(n_reads))
+
+clone_csv <- paste0(output_prefix, "_clone_summary.csv")
+write_csv(clone_summary, clone_csv)
+cat(sprintf("  - Clone summary: %d clones written to %s\n",
+            nrow(clone_summary), clone_csv))
+
+# Write cross-site results if any
+if (nrow(cross_site_results) > 0) {
+  cross_csv <- paste0(output_prefix, "_cross_site_clonal.csv")
+  write_csv(cross_site_results, cross_csv)
+  cat(sprintf("  - Cross-site clonal candidates: %s\n", cross_csv))
+}
+
+# Write within-site comparison results
+if (nrow(within_site_results) > 0) {
+  ws_csv <- paste0(output_prefix, "_within_site_comparisons.csv")
+  write_csv(within_site_results, ws_csv)
+  cat(sprintf("  - Within-site comparisons: %s\n", ws_csv))
+}
+
+# ============================================================================
+# STEP 10: Console summary
 # ============================================================================
 cat("\n", strrep("-", 70), "\n")
 cat("SEQUENCE LENGTH SUMMARY\n")
@@ -559,14 +916,17 @@ if (length_stats$n > 0) {
 cat("\n", strrep("-", 70), "\n")
 cat("INTEGRATION SITE STATISTICS\n")
 cat(strrep("-", 70), "\n")
-cat(sprintf("Total reads            : %d\n", nrow(df)))
-cat(sprintf("Unique integration sites: %d\n",
-            n_distinct(df$integration_site, na.rm = TRUE)))
+cat(sprintf("Total reads              : %d\n", nrow(df)))
+cat(sprintf("Unique integration sites : %d\n", n_unique_clones))
+cat(sprintf("PCR replicate reads      : %d\n", n_pcr_reads))
 if ("gene_name" %in% colnames(df))
-  cat(sprintf("Reads in annotated genes: %d\n", sum(!is.na(df$gene_name))))
+  cat(sprintf("Reads in annotated genes : %d\n", sum(!is.na(df$gene_name))))
+if (nrow(cross_site_results) > 0)
+  cat(sprintf("Cross-site clonal pairs  : %d (>= %.0f%% seq identity)\n",
+              nrow(cross_site_results), CROSS_SITE_IDENTITY_THRESHOLD))
 
 # ============================================================================
-# STEP 10: Save annotated CSV
+# STEP 11: Save annotated CSV
 # ============================================================================
 output_csv <- paste0(output_prefix, "_annotated.csv")
 write_csv(df, output_csv)
@@ -586,12 +946,29 @@ cat("SAM (iter1):", if (!is.null(iter1_sam)) iter1_sam else "not provided", "\n\
 
 cat("ORIENTATION METHOD\n", strrep("-", 70), "\n")
 cat("Primary  : SAM FLAG bit-16 from iteration-1 alignment\n")
-cat("Fallback : k-mer vote (k=21) against 5′/3′ HIV reference regions\n\n")
+cat("Fallback : k-mer vote (k=21) against 5'/3' HIV reference regions\n\n")
 
 ori_summary <- df %>% count(viral_orientation) %>% arrange(desc(n))
 cat("ORIENTATION COUNTS\n", strrep("-", 70), "\n")
 for (i in seq_len(nrow(ori_summary)))
   cat(sprintf("  %-12s: %d\n", ori_summary$viral_orientation[i], ori_summary$n[i]))
+
+cat("\nCLONE / PCR-REPLICATE CLASSIFICATION\n", strrep("-", 70), "\n")
+cat(sprintf("Unique integration sites (clones): %d\n", n_unique_clones))
+cat(sprintf("PCR replicate reads (same site)  : %d\n", n_pcr_reads))
+clone_class_tbl <- df %>% count(clone_class) %>% arrange(desc(n))
+for (i in seq_len(nrow(clone_class_tbl)))
+  cat(sprintf("  %-35s: %d\n", clone_class_tbl$clone_class[i], clone_class_tbl$n[i]))
+if (nrow(cross_site_results) > 0) {
+  cat(sprintf("\nCross-site clonal expansion candidates: %d pairs\n",
+              nrow(cross_site_results)))
+  for (i in seq_len(min(nrow(cross_site_results), 10))) {
+    cat(sprintf("  %s <-> %s  (%.1f%% identity)\n",
+                cross_site_results$clone_A[i],
+                cross_site_results$clone_B[i],
+                cross_site_results$pct_identity[i]))
+  }
+}
 
 if (length_stats$n > 0) {
   cat("\nSEQUENCE LENGTHS\n", strrep("-", 70), "\n")
@@ -599,10 +976,17 @@ if (length_stats$n > 0) {
               length_stats$n, length_stats$mean_length, length_stats$median_length,
               length_stats$min_length, length_stats$max_length))
 }
-if (n_seqs >= 2 && n_seqs <= 200 && exists("off_diag")) {
-  cat("\nSEQUENCE DIVERSITY (k-mer Jaccard)\n", strrep("-", 70), "\n")
-  cat(sprintf("Mean pairwise similarity   : %.3f\n", mean(off_diag)))
-  cat(sprintf("Mean pairwise dissimilarity: %.3f\n", 1 - mean(off_diag)))
+if (n_seqs >= 2 && n_seqs <= SIM_MATRIX_MAX && exists("off_diag_valid") && length(off_diag_valid) > 0) {
+  cat("\nSEQUENCE DIVERSITY (k-mer containment, k=12)\n", strrep("-", 70), "\n")
+  cat(sprintf("Comparable pairs        : %d\n", length(off_diag_valid)))
+  cat(sprintf("Mean pairwise identity  : %.1f%%\n", mean(off_diag_valid)))
+  cat(sprintf("Median pairwise identity: %.1f%%\n", median(off_diag_valid)))
+}
+if (nrow(within_group_pids) > 0) {
+  cat("\nWITHIN-GROUP PID (clone/PCR groups)\n", strrep("-", 70), "\n")
+  cat(sprintf("Groups with >= 2 reads  : %d\n", nrow(within_group_pids)))
+  cat(sprintf("Mean within-group PID   : %.1f%%\n", mean(within_group_pids$mean_within_pid)))
+  cat(sprintf("Min within-group PID    : %.1f%%\n", min(within_group_pids$min_within_pid)))
 }
 pid_data <- df %>% filter(!is.na(percent_identity))
 if (nrow(pid_data) > 0) {
@@ -617,33 +1001,29 @@ sink()
 cat(sprintf("  Saved text report : %s\n", report_file))
 
 # ============================================================================
-# STEP 11: Write FASTA for external alignment (MAFFT-ready)
-#   Header format: >sample|READ|intactness|strand|chromosome|integration_site
-#   Sequences have host Ns stripped (pure viral sequence only)
+# STEP 12: Write FASTA for external alignment (MAFFT-ready)
+#   Header: >sample|READ|clone_id|clone_class|strand|chromosome|integration_site
 # ============================================================================
-cat("\nStep 11: Writing FASTA for MAFFT alignment...\n")
+cat("\nStep 12: Writing FASTA for MAFFT alignment...\n")
 
 fasta_seqs <- df %>%
   filter(!is.na(viral_sequence),
          nchar(trimws(as.character(viral_sequence))) > 0) %>%
-  mutate(
-    seq_clean = gsub("N", "", as.character(viral_sequence))) %>%
+  mutate(seq_clean = gsub("N", "", as.character(viral_sequence))) %>%
   filter(nchar(seq_clean) >= 100) %>%
   mutate(
-    intact_lbl = ifelse("intactness" %in% colnames(.),
-                        gsub(" ", "_", as.character(intactness)),
-                        "NA"),
+    clone_lbl = replace_na(clone_id, "episomal"),
+    class_lbl = replace_na(gsub(" ", "_", clone_class), "NA"),
     strand_lbl = replace_na(as.character(viral_orientation), "NA"),
     chr_lbl = replace_na(as.character(chromosome), "NA"),
     site_lbl = replace_na(as.character(integration_site), "NA"),
-    fasta_hdr = paste(sample, READ, intact_lbl,
-                        strand_lbl, chr_lbl, site_lbl, sep = "|"),
+    fasta_hdr = paste(sample, READ, clone_lbl, class_lbl,
+                      strand_lbl, chr_lbl, site_lbl, sep = "|"),
     fasta_hdr = gsub("[[:space:]]", "_", fasta_hdr))
 
 if (nrow(fasta_seqs) > 0) {
   fasta_lines <- unlist(lapply(seq_len(nrow(fasta_seqs)), function(i) {
-    c(paste0(">", fasta_seqs$fasta_hdr[i]),
-      fasta_seqs$seq_clean[i])
+    c(paste0(">", fasta_seqs$fasta_hdr[i]), fasta_seqs$seq_clean[i])
   }))
   fasta_out <- paste0(output_prefix, "_for_mafft.fasta")
   writeLines(fasta_lines, fasta_out)
@@ -657,4 +1037,3 @@ if (nrow(fasta_seqs) > 0) {
 cat("\n", strrep("=", 70), "\n")
 cat("ANALYSIS COMPLETE\n")
 cat(strrep("=", 70), "\n\n")
-

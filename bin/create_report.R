@@ -22,6 +22,9 @@ output_prefix <- args[2]
 run_name <- if (length(args) >= 3) args[3] else basename(results_dir)
 report_date <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
 
+setwd("X:/nf-viral-integration_t2t/work/68/f026c9c7d2a18eacb2cadf582216ac")
+results_dir="./"; output_prefix="results_for_report"; run_name="test"
+
 cat("\n", strrep("=", 70), "\n")
 cat("HIV VIRAL INTEGRATION HTML REPORT (v4)\n")
 cat(strrep("=", 70), "\n\n")
@@ -71,6 +74,14 @@ all_data <- bind_rows(lapply(csv_files, function(f) {
     d <- read_csv(f_use, show_col_types = FALSE, guess_max = 10000)
     if (!"sample" %in% colnames(d)) {
       d$sample <- sub("_?combined\\.csv$|_?annotated\\.csv$", "", basename(f))
+    }
+    # Coerce columns that must be character but may be guessed as numeric
+    # when all values in a file happen to look like integers (e.g. "111100000")
+    char_cols <- c("GENE_MATCH_STRING", "IPDA_INTACT", "IPDA_V2_INTACT",
+                   "COMPLETE_5PRIME", "COMPLETE_3PRIME", "EPISOME_FLAG",
+                   "N_GAPS_5PRIME", "N_GAPS_3PRIME", "N_GAPS_TOTAL")
+    for (col in intersect(char_cols, colnames(d))) {
+      d[[col]] <- as.character(d[[col]])
     }
     d
   }, error = function(e) {

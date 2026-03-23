@@ -40,6 +40,15 @@ def helpMessage() {
                                   .gff3  – GFF3 (converted to GTF via gffread)
     
     Input Options (choose one):
+        --samples               Path to samplesheet CSV with columns: sample, fastq (and/or bam)
+                                  Example CSV:
+                                    sample,fastq
+                                    STC1644,/data/STC1644.fastq.gz
+                                    STC1607,/data/STC1607.fastq.gz
+                                  BAM inputs are converted to FASTQ automatically:
+                                    sample,bam
+                                    STC1644,/data/STC1644.bam
+                                  Mixed BAM + FASTQ also supported (both columns present).
         --patient_dir           Directory containing patient BAM/FASTQ files
         --patient_bam           Single patient BAM file
         --patient_fastq         Single patient FASTQ file
@@ -66,6 +75,14 @@ def helpMessage() {
         -profile slurm,singularity    Use Slurm scheduler with Apptainer/Singularity
     
     Examples:
+        # Analyze multiple samples via samplesheet
+        nextflow run main.nf \\
+            --samples samplesheet.csv \\
+            --host_genome hg38.fa \\
+            --annotation chm13v2.0.gtf \\
+            --viral_genomes "hiv_refs/*.fa" \\
+            -profile slurm,singularity
+
         # Analyze patient sample (with GTF annotation)
         nextflow run main.nf \\
             --patient_bam sample.bam \\
@@ -112,7 +129,7 @@ log.info "Host annotation   : ${params.annotation}"
 log.info "Min MAPQ          : ${params.min_mapq}"
 log.info "Max iterations    : ${params.max_iterations}"
 log.info "Output directory  : ${params.outdir}"
-if (!params.patient_dir && !params.patient_bam && !params.patient_fastq) {
+if (!params.patient_dir && !params.patient_bam && !params.patient_fastq && !params.samples) {
     log.info "Mode              : SIMULATION"
     log.info "Integrations      : ${params.n_integrations}"
     log.info "Depth             : ${params.depth}x"
@@ -482,16 +499,40 @@ workflow {
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     combine_script_ch = Channel.fromPath("${script_dir}/combine_hiv_V2b.py", checkIfExists: true)
     annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam_v2.R", checkIfExists: true)
-    blast_script_ch = Channel.fromPath("${script_dir}/findViralGenes.pl", checkIfExists: true)
+    blast_script_ch = Channel.fromPath("${script_dir}/2.findViralGenes.R", checkIfExists: true)
     report_script_ch = Channel.fromPath("${script_dir}/create_report.R", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads (simulation or patient-based data) and GFF converter
     // ==================================================================================
-    if (params.patient_dir || params.patient_bam || params.patient_fastq) {
+    if (params.samples || params.patient_dir || params.patient_bam || params.patient_fastq) {
 
-        // PATIENT DATA MODE
-        if (params.patient_dir) {
+        // SAMPLESHEET MODE
+        if (params.samples) {
+
+            // Parse CSV: required column 'sample', optional 'fastq' and/or 'bam'
+            samplesheet_ch = Channel
+                .fromPath(params.samples, checkIfExists: true)
+                .splitCsv(header: true, strip: true)
+
+            // Rows with a 'bam' column - convert to FASTQ first
+            bam_rows_ch = samplesheet_ch
+                .filter { row -> row.containsKey('bam') && row.bam && row.bam.trim() != '' }
+                .map { row -> file(row.bam, checkIfExists: true) }
+
+            BAM_TO_FASTQ(bam_rows_ch)
+
+            bam_converted_ch = BAM_TO_FASTQ.out.fastq
+                .map { f -> tuple(f.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, ''), f) }
+
+            // Rows with a 'fastq' column - use directly
+            fastq_rows_ch = samplesheet_ch
+                .filter { row -> row.containsKey('fastq') && row.fastq && row.fastq.trim() != '' }
+                .map { row -> tuple(row.sample, file(row.fastq, checkIfExists: true)) }
+
+            input_reads_ch = fastq_rows_ch.mix(bam_converted_ch)
+
+        } else if (params.patient_dir) {
 
             // Scan for BAM files
             bam_files_ch = Channel.fromPath("${params.patient_dir}/**/*.bam", checkIfExists: false)
@@ -499,7 +540,6 @@ workflow {
                 .filter { it.exists() }
                 .filter { !it.name.toLowerCase().contains('unassigned') }
                 .filter { !it.toUriString().toLowerCase().contains('fail_reads') }
-                .filter { it.toUriString().toLowerCase().contains('hifi_reads') }
                 .unique()
 
             // Scan for FASTQ files
@@ -566,7 +606,7 @@ workflow {
     SELECT_BEST_REFERENCE(grouped_results)
 
     // ==================================================================================
-    // STEP 2: Iterative viral masking until no reads left
+    // STEP 2: Iterative viral masking until no reads are left
     // ==================================================================================
     
     // Combine initial SAM with best viral reference for iterative mapping

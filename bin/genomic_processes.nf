@@ -200,7 +200,7 @@ process COMBINE_RESULTS {
         path combine_script
 
     output:
-        tuple val(sample_id), path("*.tab"), emit: tab
+        //tuple val(sample_id), path("*.tab"), emit: tab
         tuple val(sample_id), path("*.csv"), emit: csv
         tuple val(sample_id), path("*.log")
 

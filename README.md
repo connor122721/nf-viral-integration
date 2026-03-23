@@ -117,7 +117,7 @@ This pipeline detects viral integration sites through:
 
 ## Key Parameters
 ```bash
---patient_dir    # Input HiFi reads (FASTQ/BAM)
+--samplesheet    # Input HiFi reads (FASTQ/BAM)
 --host_genome    # Host reference genome (FASTA)
 --viral_genomes  # Viral reference genome(s) (FASTA)
 --annotation     # Host gene annotations (GTF / GFF3)
@@ -135,6 +135,12 @@ This pipeline detects viral integration sites through:
 # Test if the pipeline works with a lightweight example!
 -profile test,singularity
 ```
+
+### Example Samplesheet
+The pipeline supports a samplesheet csv with two basic columns (sample, bam/fastq):
+- The column "sample" is just the sample name.
+- The column "bam" should be the path to the input bam.
+- If you are using fastq(s) as input, then change the column name to "fastq" in place of the "bam" column.
 
 ### Example Viral Reference Panel
 The pipeline supports multiple HIV references for mapping (naming of the fastas are arbitrary in this example):
@@ -200,7 +206,7 @@ module load singularity
 # Make sif directory once
 mkdir -p ~/sif
 cd ~/sif
-s
+
 # Pull images for genomics work
 singularity pull library://connmurr243/connmurrviral/viralint-r3
 singularity pull library://connmurr243/connmurr_viral/viral_int.sif

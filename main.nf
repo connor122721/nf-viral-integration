@@ -512,7 +512,7 @@ workflow {
 
             // Parse CSV: required column 'sample', optional 'fastq' and/or 'bam'
             samplesheet_ch = Channel
-                .fromPath(params.samples, checkIfExists: true)
+                .fromPath(params.samples, checkIfExists: false)
                 .splitCsv(header: true, strip: true)
 
             // Rows with a 'bam' column - convert to FASTQ first

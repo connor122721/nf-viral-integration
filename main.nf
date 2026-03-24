@@ -498,9 +498,10 @@ workflow {
     unmask_script_ch = Channel.fromPath("${script_dir}/unmask.py", checkIfExists: true)
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     combine_script_ch = Channel.fromPath("${script_dir}/combine_hiv_V2b.py", checkIfExists: true)
-    annotate_script_ch = Channel.fromPath("${script_dir}/simple_annotate_bam_v2.R", checkIfExists: true)
-    blast_script_ch = Channel.fromPath("${script_dir}/2.findViralGenes.R", checkIfExists: true)
-    report_script_ch = Channel.fromPath("${script_dir}/create_report.R", checkIfExists: true)
+    annotate_script_ch = Channel.fromPath("${script_dir}/1.Annotate_Flank_Bam.R", checkIfExists: true)
+    blast_script_ch = Channel.fromPath("${script_dir}/2.Blast_Viral_Genes.R", checkIfExists: true)
+    report_script_ch = Channel.fromPath("${script_dir}/3.Create_Sample_HTML.R", checkIfExists: true)
+    project_report_script_ch = Channel.fromPath("${script_dir}/4.Create_Project_HTML.R", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads (simulation or patient-based data) and GFF converter
@@ -668,11 +669,12 @@ workflow {
     INTEGRATION_ANNOTATE(annotate_input,
                          annotate_script_ch.first(),
                          blast_script_ch.first(),
+                         report_script_ch.first(),
                          gtf_ch)
 
     // Collect all COMBINED CSVs (contain gene/intactness columns) for report
     CREATE_HTML_REPORT(INTEGRATION_ANNOTATE.out.csv.collect(),
-                       report_script_ch.first())
+                       project_report_script_ch.first())
 
     // At the very end of the workflow, collect all QC outputs
     MULTIQC(FASTQC.out.zip

@@ -7,7 +7,7 @@
 library(tidyverse)
 library(ggplot2)
 library(scales)
-  
+
 # -----------------------------------------------------------------------------
 # 1. Arguments
 # -----------------------------------------------------------------------------
@@ -22,8 +22,13 @@ output_prefix <- args[2]
 run_name <- if (length(args) >= 3) args[3] else basename(results_dir)
 report_date <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
 
-setwd("X:/nf-viral-integration_t2t/work/68/f026c9c7d2a18eacb2cadf582216ac")
-results_dir="./"; output_prefix="results_for_report"; run_name="test"
+## ── Interactive RStudio testing only ─────────────────────────────────────
+## Uncomment the three lines below and comment out the commandArgs block
+## above when running interactively. Never leave these active for pipeline runs.
+# setwd("/path/to/nextflow/work/dir")
+# results_dir <- "./results_for_report"
+# output_prefix <- "test_run"; run_name <- "test_run"
+## ──────────────────────────────────────────────────────────────────────────
 
 cat("\n", strrep("=", 70), "\n")
 cat("HIV VIRAL INTEGRATION HTML REPORT (v4)\n")
@@ -102,16 +107,16 @@ cat(sprintf("\nLoaded %d rows across %d sample(s)\n", nrow(all_data), n_samples)
 if ("MATCH_TYPE" %in% colnames(all_data)) {
   all_data <- all_data %>%
     mutate(intactness = factor(
-        case_when(MATCH_TYPE == "INTACT" ~ "Intact",
-                  MATCH_TYPE == "PUTATIVELY INTACT" ~ "Putatively Intact",
-                  MATCH_TYPE == "INDETERMINATE" ~ "Indeterminate",
-                  MATCH_TYPE == "INTERNAL DELETION" ~ "Internal Deletion",
-                  MATCH_TYPE == "TRUNCATED" ~ "Truncated",
-                  MATCH_TYPE == "HEAVILY TRUNCATED" ~ "Heavily Truncated",
-                  TRUE ~ "Other / Unknown"),
-        levels = c("Intact", "Putatively Intact", "Indeterminate",
-                   "Internal Deletion", "Truncated", "Heavily Truncated",
-                   "Other / Unknown")))
+      case_when(MATCH_TYPE == "INTACT" ~ "Intact",
+                MATCH_TYPE == "PUTATIVELY INTACT" ~ "Putatively Intact",
+                MATCH_TYPE == "INDETERMINATE" ~ "Indeterminate",
+                MATCH_TYPE == "INTERNAL DELETION" ~ "Internal Deletion",
+                MATCH_TYPE == "TRUNCATED" ~ "Truncated",
+                MATCH_TYPE == "HEAVILY TRUNCATED" ~ "Heavily Truncated",
+                TRUE ~ "Other / Unknown"),
+      levels = c("Intact", "Putatively Intact", "Indeterminate",
+                 "Internal Deletion", "Truncated", "Heavily Truncated",
+                 "Other / Unknown")))
 }
 
 # 3b. Normalise viral_orientation to + / - only (no "ambiguous", no "5prime")
@@ -124,7 +129,7 @@ if ("viral_orientation" %in% colnames(all_data)) {
       TRUE ~ NA_character_))
 }
 
-# 3c. Perl strand (STRAND column from findViralGenes.pl)
+# 3c. Perl strand (STRAND column from findViralGenes)
 if ("STRAND" %in% colnames(all_data)) {
   all_data <- all_data %>%
     mutate(
@@ -160,7 +165,7 @@ parse_gene_coverage <- function(gms) {
 
 if ("GENE_MATCH_STRING" %in% colnames(all_data)) {
   gene_cov_mat <- do.call(rbind,
-    lapply(all_data$GENE_MATCH_STRING, parse_gene_coverage))
+                          lapply(all_data$GENE_MATCH_STRING, parse_gene_coverage))
   all_data <- bind_cols(all_data, as_tibble(gene_cov_mat))
 }
 
@@ -197,19 +202,19 @@ if ("integration_site" %in% colnames(all_data) || episome_from_col) {
     mutate(
       is_episomal = {
         site_na <- if ("integration_site" %in% colnames(all_data)) {
-                     is.na(integration_site) | integration_site == ""
-                   } else { rep(FALSE, n()) }
-        perl_ep  <- if (episome_from_col) {
-                     !is.na(EPISOME_FLAG) & as.character(EPISOME_FLAG) %in%
-                       c("1", "TRUE", "true", "yes", "YES")
-                   } else { rep(FALSE, n()) }
+          is.na(integration_site) | integration_site == ""
+        } else { rep(FALSE, n()) }
+        perl_ep <- if (episome_from_col) {
+          !is.na(EPISOME_FLAG) & as.character(EPISOME_FLAG) %in%
+            c("1", "TRUE", "true", "yes", "YES")
+        } else { rep(FALSE, n()) }
         site_na | perl_ep
       })
 }
 
 # 3i. Reference-selection data
-ref_comp_files    <- list.files(results_dir, pattern = "_mapping_comparison\\.txt$",
-                                recursive = TRUE, full.names = TRUE)
+ref_comp_files <- list.files(results_dir, pattern = "_mapping_comparison\\.txt$",
+                             recursive = TRUE, full.names = TRUE)
 ref_detail_files  <- list.files(results_dir, pattern = "_detailed_metrics\\.txt$",
                                 recursive = TRUE, full.names = TRUE)
 
@@ -246,7 +251,7 @@ read_ref_file <- function(files, label) {
       # Inject sample name from filename if not already a column
       if (!"sample" %in% tolower(colnames(d))) {
         d$sample <- sub("_mapping_comparison\\.txt$", "",
-                    sub("_detailed_metrics\\.txt$",   "", basename(f)))
+                        sub("_detailed_metrics\\.txt$",   "", basename(f)))
       }
       # Move sample to first column for readability
       d <- dplyr::select(d, sample, everything())
@@ -311,8 +316,8 @@ if ("INSERT_LEN" %in% colnames(all_data)) {
               min_len = min(INSERT_LEN),
               max_len = max(INSERT_LEN),
               .groups = "drop")} else {
-  len_stats <- tibble()
-}
+                len_stats <- tibble()
+              }
 
 if ("viral_orientation" %in% colnames(all_data)) {
   ori_summary <- all_data %>%
@@ -321,8 +326,8 @@ if ("viral_orientation" %in% colnames(all_data)) {
     group_by(sample) %>%
     mutate(pct = round(100 * n / sum(n), 1)) %>%
     ungroup()} else {
-  ori_summary <- tibble()
-}
+      ori_summary <- tibble()
+    }
 
 if ("strand_concordance" %in% colnames(all_data)) {
   concordance_summary <- all_data %>%
@@ -331,8 +336,8 @@ if ("strand_concordance" %in% colnames(all_data)) {
     group_by(sample) %>%
     mutate(pct = round(100 * n / sum(n), 1)) %>%
     ungroup()} else {
-  concordance_summary <- tibble()
-}
+      concordance_summary <- tibble()
+    }
 
 if ("intactness" %in% colnames(all_data)) {
   intactness_summary <- all_data %>%
@@ -340,8 +345,8 @@ if ("intactness" %in% colnames(all_data)) {
     group_by(sample) %>%
     mutate(pct = round(100 * n / sum(n), 1)) %>%
     ungroup()} else {
-  intactness_summary <- tibble()
-}
+      intactness_summary <- tibble()
+    }
 
 if ("gene_name" %in% colnames(all_data)) {
   gene_summary <- all_data %>%
@@ -350,8 +355,8 @@ if ("gene_name" %in% colnames(all_data)) {
     filter(gene_name != "") %>%
     count(gene_name, sort = TRUE) %>%
     head(20)} else {
-  gene_summary <- tibble()
-}
+      gene_summary <- tibble()
+    }
 
 if ("ipda_intact" %in% colnames(all_data)) {
   ipda_summary <- all_data %>%
@@ -359,10 +364,10 @@ if ("ipda_intact" %in% colnames(all_data)) {
     summarise(
       n_ipda_intact = sum(ipda_intact, na.rm = TRUE),
       n_ipda_v2_intact = if ("ipda_v2_intact" %in% colnames(all_data))
-                           sum(ipda_v2_intact, na.rm = TRUE) else 0L,
+        sum(ipda_v2_intact, na.rm = TRUE) else 0L,
       .groups = "drop")} else {
-  ipda_summary <- tibble()
-}
+        ipda_summary <- tibble()
+      }
 
 # Diversity stats – computed only from rows with real percent_identity values.
 if ("percent_identity" %in% colnames(all_data)) {
@@ -394,8 +399,8 @@ if (length(gene_cols) > 0) {
     summarise(across(all_of(gene_cols),
                      ~ round(100 * mean(.x, na.rm = TRUE), 1)),
               .groups = "drop")} else {
-  genome_cov_summary <- tibble()
-}
+                genome_cov_summary <- tibble()
+              }
 
 # Episomal per-sample counts
 if ("is_episomal" %in% colnames(all_data)) {
@@ -479,7 +484,7 @@ p_reads <- {
     geom_col(show.legend = FALSE, width = 0.7) +
     coord_flip() +
     scale_fill_manual(
-      values = colorRampPalette(PALETTE)(nrow(sample_counts))) +
+      values = colorRampPalette(PALETTE)(n_distinct(sample_counts$sample))) +
     scale_y_continuous(labels = label_comma()) +
     labs(title = "Reads per Sample", x = NULL, y = "Count") +
     th()
@@ -557,19 +562,19 @@ if (all(c("chromosome", "integration_site") %in% colnames(all_data))) {
     filter(!is.na(integration_site)) %>%
     mutate(pos = as.integer(str_extract(integration_site, "(?<=:)\\d+"))) %>%
     filter(!is.na(pos), !is.na(chromosome))
-
+  
   if (nrow(pos_data) > 0) {
     pos_data <- pos_data %>%
       mutate(chromosome = factor(as.character(chromosome),
                                  levels = rev(chr_order)))
-
+    
     if ("intactness" %in% colnames(pos_data)) {
       color_aes   <- aes(x = pos / 1e6, y = chromosome, color = intactness)
       color_scale <- scale_color_manual(values = INTACT_COLS, name = "Intactness")
     } else {
       color_aes   <- aes(x = pos / 1e6, y = chromosome, color = sample)
       color_scale <- scale_color_manual(
-        values = colorRampPalette(PALETTE)(n_samples), name = "Sample")
+        values = colorRampPalette(PALETTE)(n_distinct(pos_data$sample)), name = "Sample")
     }
     p_genome <- ggplot(pos_data, color_aes) +
       geom_point(alpha = 0.7, size = 1.8) +
@@ -595,8 +600,8 @@ if ("INSERT_LEN" %in% colnames(all_data)) {
       scale_x_continuous(labels = label_comma()) +
       scale_y_continuous(labels = label_comma()) +
       scale_fill_manual(
-        values = colorRampPalette(PALETTE)(n_samples)) +
-      facet_wrap(~sample, scales = "free_y", ncol = min(n_samples, 3)) +
+        values = colorRampPalette(PALETTE)(n_distinct(ld$sample))) +
+      facet_wrap(~sample, scales = "free_y", ncol = min(n_distinct(ld$sample), 3)) +
       labs(title = "Viral Insert Length Distribution",
            x = "Insert Length (bp)", y = "Count") +
       th()
@@ -614,8 +619,8 @@ if ("percent_identity" %in% colnames(all_data)) {
     p_pid <- ggplot(pd, aes(x = percent_identity, fill = sample)) +
       geom_histogram(bins = 40, alpha = 0.85, position = "identity") +
       scale_fill_manual(
-        values = colorRampPalette(PALETTE)(n_samples)) +
-      facet_wrap(~sample, scales = "free_y", ncol = min(n_samples, 3)) +
+        values = colorRampPalette(PALETTE)(n_distinct(pd$sample))) +
+      facet_wrap(~sample, scales = "free_y", ncol = min(n_distinct(pd$sample), 3)) +
       labs(title = "Viral Sequence % Identity to Reference",
            x = "% Identity", y = "Count") +
       th()
@@ -632,7 +637,7 @@ if (nrow(genome_cov_summary) > 0 && length(gene_cols) >= 3) {
     pivot_longer(all_of(gene_cols),
                  names_to = "gene", values_to = "pct") %>%
     mutate(gene = factor(gene, levels = gene_cols))
-
+  
   p_gene_cov <- ggplot(gc_long, aes(x = gene, y = sample, fill = pct)) +
     geom_tile(color = "white", linewidth = 0.4) +
     geom_text(aes(label = sprintf("%.0f%%", pct)),
@@ -670,7 +675,7 @@ if (nrow(pid_rows) > 0) {
     geom_boxplot(width = 0.18, alpha = 0.9, outlier.size = 0.6,
                  show.legend = FALSE) +
     scale_fill_manual(
-      values = colorRampPalette(PALETTE)(n_samples)) +
+      values = colorRampPalette(PALETTE)(n_distinct(pid_rows$sample))) +
     scale_y_continuous(limits = c(NA, 100)) +
     labs(title = "Viral Sequence Diversity (% Identity to Reference)",
          subtitle = "Lower = more divergent from reference",
@@ -690,7 +695,7 @@ if (nrow(episomal_summary) > 0) {
                                 n_integrated = "Integrated",
                                 n_episomal   = "Episomal / No Host Site"),
                          levels = c("Integrated", "Episomal / No Host Site")))
-
+  
   p_episomal <- ggplot(ep_long, aes(x = sample, y = count, fill = type)) +
     geom_col(position = "fill", width = 0.7) +
     scale_y_continuous(labels = label_percent()) +
@@ -707,13 +712,13 @@ if (nrow(episomal_summary) > 0) {
 ## 6n. Reference-selection: mapped-reads bar per sample x reference
 if (nrow(ref_comp_data) > 0) {
   cnt_col <- intersect(c("mapped_reads","total_mapped","n_mapped",
-                          "reads_mapped","mapped","count"),
-                        colnames(ref_comp_data))[1]
+                         "reads_mapped","mapped","count"),
+                       colnames(ref_comp_data))[1]
   ref_col <- intersect(c("reference","viral_reference","ref","ref_name",
-                          "reference_name","genome"),
-                        colnames(ref_comp_data))[1]
+                         "reference_name","genome"),
+                       colnames(ref_comp_data))[1]
   smp_col <- intersect(c("sample","sample_id"), colnames(ref_comp_data))[1]
-
+  
   if (!is.na(cnt_col) && !is.na(ref_col) && !is.na(smp_col)) {
     p_ref_reads <- ref_comp_data %>%
       rename(ref_reads = !!cnt_col,
@@ -726,7 +731,7 @@ if (nrow(ref_comp_data) > 0) {
                  fill = smp)) +
       geom_col(position = "dodge", width = 0.7) +
       coord_flip() +
-      scale_fill_manual(values = colorRampPalette(PALETTE)(n_samples),
+      scale_fill_manual(values = colorRampPalette(PALETTE)(n_distinct(ref_comp_data[[smp_col]])),
                         name = "Sample") +
       scale_y_continuous(labels = label_comma()) +
       labs(title = "Reference-Selection: Mapped Reads per Viral Reference",
@@ -743,15 +748,15 @@ if (nrow(ref_comp_data) > 0) {
 ## 6o. Reference-selection: heatmap of a quality metric across all candidates
 if (nrow(ref_comp_data) > 0) {
   heat_col <- intersect(c("coverage","breadth_coverage","pct_coverage",
-                           "percent_coverage","mean_depth","depth",
-                           "avg_identity","mean_identity","identity",
-                           "score","avg_mapq","avg_edit_dist"),
-                         colnames(ref_comp_data))[1]
+                          "percent_coverage","mean_depth","depth",
+                          "avg_identity","mean_identity","identity",
+                          "score","avg_mapq","avg_edit_dist"),
+                        colnames(ref_comp_data))[1]
   ref_col2 <- intersect(c("reference","viral_reference","ref","ref_name",
-                           "reference_name","genome"),
-                         colnames(ref_comp_data))[1]
+                          "reference_name","genome"),
+                        colnames(ref_comp_data))[1]
   smp_col2 <- intersect(c("sample","sample_id"), colnames(ref_comp_data))[1]
-
+  
   if (!is.na(heat_col) && !is.na(ref_col2) && !is.na(smp_col2)) {
     heat_label <- tools::toTitleCase(gsub("_", " ", heat_col))
     p_ref_heat <- ref_comp_data %>%
@@ -767,8 +772,8 @@ if (nrow(ref_comp_data) > 0) {
                            high = "#198754", midpoint = median(
                              suppressWarnings(as.numeric(
                                ref_comp_data[[heat_col]]))[!is.na(
-                               suppressWarnings(as.numeric(
-                                 ref_comp_data[[heat_col]])))]),
+                                 suppressWarnings(as.numeric(
+                                   ref_comp_data[[heat_col]])))]),
                            name = heat_label) +
       labs(title = sprintf("Reference-Selection: %s per Candidate", heat_label),
            x = "Sample", y = "Viral Reference") +
@@ -796,14 +801,14 @@ img <- list(
   len = make_img(p_len, "insert_len", 10, 4),
   pid = make_img(p_pid, "pct_id", 10, 4),
   gene_cov = make_img(p_gene_cov, "gene_cov", 9,
-                        max(4, n_samples * 0.8 + 2)),
+                      max(4, n_samples * 0.8 + 2)),
   host_genes = make_img(p_host_genes, "host_genes", 8, 5),
   diversity = make_img(p_diversity, "diversity", 8, 5),
   episomal = make_img(p_episomal, "episomal", 8, 4),
   ref_reads = make_img(p_ref_reads, "ref_reads", 10,
-                        max(5, nrow(ref_comp_data) * 0.35 + 2)),
+                       max(5, nrow(ref_comp_data) * 0.35 + 2)),
   ref_heat = make_img(p_ref_heat, "ref_heat", 10,
-                        max(5, nrow(ref_comp_data) * 0.35 + 2)))
+                      max(5, nrow(ref_comp_data) * 0.35 + 2)))
 
 # -----------------------------------------------------------------------------
 # 8. HTML helpers
@@ -878,15 +883,15 @@ if ("is_episomal" %in% colnames(all_data)) {
 n_chromosomes <- n_distinct(all_data$chromosome, na.rm = TRUE)
 
 kpi_html <- sprintf('<div class="stats-grid">%s</div>',
-  paste(
-    stat_box(format(total_reads, big.mark = ","), "Total Reads"),
-    stat_box(n_samples, "Samples"),
-    stat_box(sites_label, "Unique Integration Sites"),
-    stat_box(pct_intact, "Intact / Put. Intact", "#2f9e44"),
-    stat_box(pct_genic, "Reads in Host Genes"),
-    stat_box(episomal_label, "Episomal Reads", "#ff922b"),
-    stat_box(n_chromosomes, "Chromosomes Affected"),
-    collapse = "\n"))
+                    paste(
+                      stat_box(format(total_reads, big.mark = ","), "Total Reads"),
+                      stat_box(n_samples, "Samples"),
+                      stat_box(sites_label, "Unique Integration Sites"),
+                      stat_box(pct_intact, "Intact / Put. Intact", "#2f9e44"),
+                      stat_box(pct_genic, "Reads in Host Genes"),
+                      stat_box(episomal_label, "Episomal Reads", "#ff922b"),
+                      stat_box(n_chromosomes, "Chromosomes Affected"),
+                      collapse = "\n"))
 
 # QC table
 qc_df <- sample_counts
@@ -1119,10 +1124,10 @@ Check upstream INTEGRATION_ANNOTATE / SELECT_BEST_REFERENCE outputs for these sa
 }
 
 sec_overview  <- card("overview", "Run Overview",
-  paste0(low_read_html,
-         kpi_html,
-         df_html(qc_df, id = "qc-table",
-                 cap = "Per-sample QC Summary")))
+                      paste0(low_read_html,
+                             kpi_html,
+                             df_html(qc_df, id = "qc-table",
+                                     cap = "Per-sample QC Summary")))
 sec_reads     <- plot_card("reads-per-sample",
                            "Reads per Sample", img$reads)
 sec_intact    <- plot_card("intactness",
@@ -1155,28 +1160,28 @@ ref_sel_body <- {
   parts <- character(0)
   if (nrow(ref_comp_data) > 0) {
     parts <- c(parts,
-      '<p style="font-size:.8rem;color:var(--fg2);margin-bottom:.8rem;">',
-      'Mapping statistics for every viral reference candidate evaluated by ',
-      'SELECT_BEST_REFERENCE.  The selected reference for each sample is the ',
-      'one with the most mapped reads after duplicate removal.</p>',
-      df_html(ref_comp_data, id = "ref-comp-table",
-              cap = "Mapping Comparison – All Reference Candidates"))
+               '<p style="font-size:.8rem;color:var(--fg2);margin-bottom:.8rem;">',
+               'Mapping statistics for every viral reference candidate evaluated by ',
+               'SELECT_BEST_REFERENCE.  The selected reference for each sample is the ',
+               'one with the most mapped reads after duplicate removal.</p>',
+               df_html(ref_comp_data, id = "ref-comp-table",
+                       cap = "Mapping Comparison – All Reference Candidates"))
   }
   if (!is.null(img$ref_reads)) {
     parts <- c(parts,
-      sprintf('<div class="plot-container" style="margin-top:1.2rem;">%s</div>',
-              img$ref_reads))
+               sprintf('<div class="plot-container" style="margin-top:1.2rem;">%s</div>',
+                       img$ref_reads))
   }
   if (!is.null(img$ref_heat)) {
     parts <- c(parts,
-      sprintf('<div class="plot-container" style="margin-top:1.2rem;">%s</div>',
-              img$ref_heat))
+               sprintf('<div class="plot-container" style="margin-top:1.2rem;">%s</div>',
+                       img$ref_heat))
   }
   if (nrow(ref_detail_data) > 0) {
     parts <- c(parts,
-      '<h3 style="font-size:.9rem;margin-top:1.4rem;">Detailed Metrics</h3>',
-      df_html(ref_detail_data, id = "ref-detail-table",
-              cap = "Detailed Reference Metrics"))
+               '<h3 style="font-size:.9rem;margin-top:1.4rem;">Detailed Metrics</h3>',
+               df_html(ref_detail_data, id = "ref-detail-table",
+                       cap = "Detailed Reference Metrics"))
   }
   if (length(parts) == 0) {
     '<p><em>No reference-selection files found in results directory.  '
@@ -1190,12 +1195,12 @@ sec_ref_select <- card("ref-select", "Viral Reference Selection", ref_sel_body)
 
 sec_table     <- card("sites-table",
                       "Integration Sites",
-  paste0(
-    '<p style="font-size:.8rem;color:var(--fg2);margin-bottom:.8rem;">',
-    'viral_orientation and perl_strand both show + or -. ',
-    'strand_concordance = agreement between the two calling methods. ',
-    'Full data in the combined CSV files.</p>',
-    df_html(integration_tbl)))
+                      paste0(
+                        '<p style="font-size:.8rem;color:var(--fg2);margin-bottom:.8rem;">',
+                        'viral_orientation and perl_strand both show + or -. ',
+                        'strand_concordance = agreement between the two calling methods. ',
+                        'Full data in the combined CSV files.</p>',
+                        df_html(integration_tbl)))
 
 sections <- paste0(
   sec_overview, sec_reads,
@@ -1255,7 +1260,7 @@ if ("viral_sequence" %in% colnames(all_data)) {
   has_ori  <- "viral_orientation" %in% colnames(all_data)
   has_chr  <- "chromosome"        %in% colnames(all_data)
   has_site <- "integration_site"  %in% colnames(all_data)
-
+  
   fasta_data <- all_data %>%
     filter(!is.na(viral_sequence),
            nchar(trimws(as.character(viral_sequence))) > 0) %>%
@@ -1271,7 +1276,7 @@ if ("viral_sequence" %in% colnames(all_data)) {
       seq_clean   = gsub("N", "", as.character(viral_sequence))
     ) %>%
     filter(nchar(seq_clean) >= 100)
-
+  
   if (nrow(fasta_data) > 0) {
     fasta_lines <- unlist(lapply(seq_len(nrow(fasta_data)), function(i) {
       c(paste0(">", fasta_data$fasta_id[i]),

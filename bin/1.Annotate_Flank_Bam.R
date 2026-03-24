@@ -3,7 +3,7 @@
 # Viral Integration Orientation and Sequence Analysis 
 #
 # Usage:
-#   Rscript simple_annotate_bam_v2.R \
+#   Rscript 1.Annotate_Flank_Bam.R \
 #       <input.csv> <unmasked.fasta> <hiv_ref.fasta> <gtf> \
 #       <output_prefix> [iteration1.sam]
 #
@@ -488,13 +488,13 @@ df <- df %>%
   left_join(site_counts, by = "site_key") %>%
   mutate(
     clone_class = case_when(
-      is.na(site_key) ~ "episomal",
+      is.na(site_key) ~ "no host flanks",
       reads_at_site == 1 ~ "unique integration",
       reads_at_site > 1 ~ "technical replicate"),
     is_pcr_replicate = (!is.na(reads_at_site) & reads_at_site > 1))
 
 n_unique_clones <- n_distinct(df$clone_id, na.rm = TRUE)
-n_pcr_reads     <- sum(df$is_pcr_replicate, na.rm = TRUE)
+n_pcr_reads <- sum(df$is_pcr_replicate, na.rm = TRUE)
 cat(sprintf("  - Unique integration sites (clones): %d\n", n_unique_clones))
 cat(sprintf("  - PCR replicate reads (same site):   %d\n", n_pcr_reads))
 
@@ -551,8 +551,8 @@ if (length(multi_read_sites) > 0) {
         classification = case_when(
           is.na(p) ~ "undetermined",
           p >= 95 ~ "technical replicate",
-          p >= 90 ~ "same-site divergent (possible hypermutation)",
-          TRUE ~ "same-site highly divergent (possible mixed infection)"))
+          p >= 90 ~ "same-site divergent",
+          TRUE ~ "same-site highly divergent"))
     }
   }
   within_site_results <- bind_rows(ws_list)
@@ -719,7 +719,7 @@ cat(sprintf("  - Unique viral sequences (>= 100 bp): %d\n", nrow(unique_seqs)))
 # Save viral sequences
 viral_seqs <- DNAStringSet(unique_seqs$viral_sequence)
 names(viral_seqs) <- paste0(
-  ifelse(!is.na(unique_seqs$clone_id), unique_seqs$clone_id, "episomal"),
+  ifelse(!is.na(unique_seqs$clone_id), unique_seqs$clone_id, "no_host_flanks"),
   "_", unique_seqs$viral_orientation,
   "_", str_sub(unique_seqs$READ, 1, 30))
 viral_fasta_file <- paste0(output_prefix, "_viral_sequences.fasta")
@@ -789,11 +789,11 @@ if (n_seqs >= 2 && n_seqs <= SIM_MATRIX_MAX) {
   off_diag <- sim_mat[lower.tri(sim_mat)]
   off_diag_valid <- off_diag[!is.na(off_diag)]
   if (length(off_diag_valid) > 0) {
-    cat(sprintf("  - Comparable pairs          : %d / %d (%.0f%%)\n",
+    cat(sprintf("  - Comparable pairs : %d / %d (%.0f%%)\n",
                 length(off_diag_valid), length(off_diag),
                 100 * length(off_diag_valid) / length(off_diag)))
-    cat(sprintf("  - Mean pairwise identity    : %.1f%%\n", mean(off_diag_valid)))
-    cat(sprintf("  - Median pairwise identity  : %.1f%%\n", median(off_diag_valid)))
+    cat(sprintf("  - Mean pairwise identity : %.1f%%\n", mean(off_diag_valid)))
+    cat(sprintf("  - Median pairwise identity : %.1f%%\n", median(off_diag_valid)))
   }
 
   # Heatmap with clone annotations
@@ -1012,7 +1012,7 @@ fasta_seqs <- df %>%
   mutate(seq_clean = gsub("N", "", as.character(viral_sequence))) %>%
   filter(nchar(seq_clean) >= 100) %>%
   mutate(
-    clone_lbl = replace_na(clone_id, "episomal"),
+    clone_lbl = replace_na(clone_id, "no_host_flank"),
     class_lbl = replace_na(gsub(" ", "_", clone_class), "NA"),
     strand_lbl = replace_na(as.character(viral_orientation), "NA"),
     chr_lbl = replace_na(as.character(chromosome), "NA"),

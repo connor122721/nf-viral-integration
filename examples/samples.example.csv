@@ -1,0 +1,8 @@
+sample_id,patient_id,timepoint,bam,demux,barcode,barcode_fasta
+PT01_T0,PT01,T0,runs/run1.hifi.bam,true,bc1001--bc1001,refs/Sequel_16_barcodes.fasta
+PT01_T1,PT01,T1,runs/run1.hifi.bam,true,bc1002--bc1002,refs/Sequel_16_barcodes.fasta
+PT01_T2,PT01,T2,runs/run1.hifi.bam,true,bc1003--bc1003,refs/Sequel_16_barcodes.fasta
+PT02_T0,PT02,T0,runs/run1.hifi.bam,true,bc1004--bc1004,refs/Sequel_16_barcodes.fasta
+PT02_T1,PT02,T1,runs/run2.hifi.bam,true,bc1001--bc1001,refs/Sequel_16_barcodes.fasta
+PT03_T0,PT03,T0,runs/run3.demuxed.bam,false,,
+PT03_T1,PT03,T1,runs/run3b.demuxed.bam,false,,

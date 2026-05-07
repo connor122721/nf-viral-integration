@@ -1,0 +1,121 @@
+Bootstrap: docker
+From: rocker/r-ver:4.4
+
+%post
+    # Set environment variables
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Update and install system dependencies
+    apt-get update && apt-get install -y \
+        perl \
+        cpanminus \
+        libxml2-dev \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libfontconfig1-dev \
+        libharfbuzz-dev \
+        libfribidi-dev \
+        libfreetype6-dev \
+        libpng-dev \
+        libtiff5-dev \
+        libjpeg-dev \
+        zlib1g-dev \
+        wget \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # Install NCBI BLAST+
+    cd /opt
+    wget https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.10.0/ncbi-blast-2.10.0+-x64-linux.tar.gz
+    tar -xzf ncbi-blast-2.10.0+-x64-linux.tar.gz
+    rm ncbi-blast-2.10.0+-x64-linux.tar.gz
+    ln -s /opt/ncbi-blast-2.10.0+/bin/* /usr/local/bin/
+    
+    # Create bind mount directories for databases
+    # cp -r /home/c0murr09/HIV_GENES/ /opt
+
+    # Install Perl module Getopt::Long
+    cpanm Getopt::Long
+    
+    # Install BiocManager
+    R -e "install.packages('BiocManager', repos='https://cloud.r-project.org/')"
+    
+    # Install Bioconductor packages
+    R -e "BiocManager::install(c( \
+        'GenomicRanges', \
+        'rtracklayer', \
+        'TxDb.Hsapiens.UCSC.hg38.knownGene', \
+        'ensembldb', \
+        'EnsDb.Hsapiens.v86', \
+        'annotatr', \
+        'AnnotationHub', \
+        'S4Vectors' \
+    ), ask=FALSE, update=FALSE)"
+    
+    # Install CRAN packages
+    R -e "install.packages(c( \
+        'ggplot2', \
+        'dplyr', \
+        'stringr', \
+	'optparse', \
+	'cowplot', \
+        'readxml', \
+        'ggforce', \
+        'stringi', \
+        'chromoMap', \
+        'randomcoloR', \
+        'data.table', \
+        'patchwork', \
+        'tidyr', \
+	'tidyverse' \
+    ), repos='https://cloud.r-project.org/')"
+
+%runscript
+    exec R "$@"
+
+%labels
+    Author Connor
+    Version v1.1
+    Description R container with Bioconductor packages, BLAST+, and HIV database support
+
+%help
+    This container includes:
+    - R 4.4
+    - Perl with Getopt::Long
+    - NCBI BLAST+ 2.10.0
+    - Bioconductor packages for genomic analysis
+    - Various R packages for data analysis and visualization
+    
+    BLAST Database Setup:
+    The container expects BLAST databases to be bind-mounted from your host system.
+    
+    Usage with bind mounts:
+        # Build the container
+        apptainer build r-genomics.sif R_Genomics_v1_blast.def
+        
+        # Run with database bind mounts
+        apptainer exec \
+            --bind /home/kyinbre/data/HIV_GENES/BLAST_DB:/blast_db \
+            --bind /home/kyinbre/tmp:/tmp_blast \
+            r-genomics.sif Rscript your_script.R
+        
+        # Or set up environment for easier access
+        export APPTAINER_BIND="/home/kyinbre/data/HIV_GENES/BLAST_DB:/blast_db,/home/kyinbre/tmp:/tmp_blast"
+        apptainer exec r-genomics.sif Rscript your_script.R
+    
+    Inside the container, databases are accessible at:
+        - /blast_db/HIV/IPDA/IPDA
+        - /blast_db/HIV/IPDA/IPDA_PMC9525950
+    
+    Other usage:
+        # Interactive R session
+        apptainer run r-genomics.sif
+        
+        # Run Perl script with BLAST
+        apptainer exec \
+            --bind /home/kyinbre/data/HIV_GENES/BLAST_DB:/blast_db \
+            r-genomics.sif perl script.pl --option value
+        
+        # Interactive shell
+        apptainer shell \
+            --bind /home/kyinbre/data/HIV_GENES/BLAST_DB:/blast_db \
+            r-genomics.sif

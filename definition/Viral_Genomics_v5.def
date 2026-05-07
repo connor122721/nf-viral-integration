@@ -1,0 +1,233 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.3.0-0
+
+%post
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+
+    ## -------------------------------------------------------
+    ## 0. Bootstrap mamba into the base conda environment
+    ##    miniforge3 ships with conda only; we add mamba
+    ##    from conda-forge before doing anything else.
+    ## -------------------------------------------------------
+    conda install -y -n base -c conda-forge mamba
+
+    ## -------------------------------------------------------
+    ## 1. Configure channels
+    ##    Priority order: conda-forge > bioconda > defaults
+    ## -------------------------------------------------------
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+    conda config --set channel_priority strict
+
+    ## -------------------------------------------------------
+    ## 2. Create the main "viral_genomics" environment.
+    ##    All packages resolved in one solver pass for maximum
+    ##    compatibility. Comments inside mamba create are not
+    ##    supported — package groups annotated here instead.
+    ##
+    ##    GROUP A: core language runtimes
+    ##      r-base=4.4.*, perl, perl-getopt-long
+    ##    GROUP B: system / build tools
+    ##      make, wget, libxml2, libcurl, openssl
+    ##    GROUP C: BLAST+
+    ##      blast
+    ##    GROUP D: R CRAN packages (conda-forge)
+    ##      r-tidyverse, r-data.table, r-ggplot2, r-cowplot,
+    ##      r-patchwork, r-ggforce, r-stringi, r-ape,
+    ##      r-readxl, r-optparse, r-randomcolorr
+    ##    GROUP E: Bioconductor packages (bioconda)
+    ##      bioconductor-genomicranges, bioconductor-biostrings,
+    ##      bioconductor-pwalign, bioconductor-rtracklayer,
+    ##      bioconductor-s4vectors, bioconductor-annotationhub,
+    ##      bioconductor-annotatr, bioconductor-ensembldb,
+    ##      bioconductor-txdb.hsapiens.ucsc.hg38.knowngene,
+    ##      bioconductor-ensdb.hsapiens.v86
+    ## -------------------------------------------------------
+    mamba create -y -n viral_genomics \
+        "r-base=4.4.*" \
+        perl \
+        perl-getopt-long \
+        make \
+        wget \
+        libxml2 \
+        libcurl \
+        openssl \
+        blast \
+        r-tidyverse \
+        r-data.table \
+        r-ggplot2 \
+        r-cowplot \
+        r-patchwork \
+        r-ggforce \
+        r-stringi \
+        r-ape \
+        r-readxl \
+        r-optparse \
+        r-randomcolorr \
+        bioconductor-genomicranges \
+        bioconductor-biostrings \
+        bioconductor-pwalign \
+        bioconductor-rtracklayer \
+        bioconductor-s4vectors \
+        bioconductor-annotationhub \
+        bioconductor-annotatr \
+        bioconductor-ensembldb \
+        "bioconductor-txdb.hsapiens.ucsc.hg38.knowngene" \
+        bioconductor-ensdb.hsapiens.v86
+
+    ## -------------------------------------------------------
+    ## 3. Activate environment and install CRAN-only packages
+    ##    that have no conda feedstock.
+    ##    chromoMap: not on conda-forge as of 2024.
+    ## -------------------------------------------------------
+    source /opt/conda/etc/profile.d/conda.sh
+    conda activate viral_genomics
+
+    Rscript -e "
+        pkgs   <- c('chromoMap')
+        needed <- pkgs[!pkgs %in% rownames(installed.packages())]
+        if (length(needed) > 0) {
+            install.packages(
+                needed,
+                repos        = 'https://cloud.r-project.org/',
+                dependencies = TRUE,
+                Ncpus        = parallel::detectCores()
+            )
+        }
+    "
+
+    ## -------------------------------------------------------
+    ## 4. Add cpanminus for any future Perl module additions.
+    ##    Getopt::Long is already present via conda (step 2).
+    ## -------------------------------------------------------
+    mamba install -y -n viral_genomics perl-app-cpanminus
+
+    ## -------------------------------------------------------
+    ## 5. Verify key tools
+    ## -------------------------------------------------------
+    echo ""
+    echo "============================================"
+    echo " Viral Genomics v5.1 — Install Verification"
+    echo "============================================"
+
+    echo "[blastn]"
+    blastn -version
+
+    echo "[R]"
+    R --version | head -1
+
+    echo "[Perl / Getopt::Long]"
+    perl -e "use Getopt::Long; print 'Getopt::Long OK\n'"
+
+    echo "[R packages]"
+    Rscript -e "
+        pkgs <- c(
+            'tidyverse','data.table','ggplot2','cowplot','patchwork',
+            'ggforce','stringi','ape','readxl','optparse',
+            'randomcoloR','chromoMap',
+            'GenomicRanges','Biostrings','pwalign','rtracklayer',
+            'S4Vectors','AnnotationHub','annotatr','ensembldb',
+            'EnsDb.Hsapiens.v86',
+            'TxDb.Hsapiens.UCSC.hg38.knownGene'
+        )
+        status <- sapply(pkgs, function(p)
+            if (requireNamespace(p, quietly = TRUE)) '[OK]' else '[MISSING]')
+        cat(sprintf('  %-45s %s\n', names(status), status), sep = '')
+        missing <- names(status)[status == '[MISSING]']
+        if (length(missing)) {
+            cat('MISSING PACKAGES:', paste(missing, collapse = ', '), '\n')
+            quit(status = 1)
+        }
+    "
+    echo "============================================"
+    echo " All checks passed."
+    echo "============================================"
+    echo ""
+
+    ## -------------------------------------------------------
+    ## 6. Clean conda caches to reduce final image size
+    ## -------------------------------------------------------
+    mamba clean -y --all
+    conda clean  -y --all
+
+%environment
+    ## Source conda and activate viral_genomics at every container invocation
+    source /opt/conda/etc/profile.d/conda.sh
+    conda activate viral_genomics 2>/dev/null || true
+    export LC_ALL=C
+    export PATH=/opt/conda/envs/viral_genomics/bin:/opt/conda/bin:$PATH
+
+%runscript
+    ## Default: behave like an Rscript wrapper (pass all args through)
+    exec Rscript "$@"
+
+%labels
+    Author      "Connor S. Murray, University of Louisville"
+    Version     "5.1"
+    Description "HIV/SIV proviral genomics — mamba R 4.4 + BLAST+ + Perl, glibc-2.31 compatible"
+    Base        "condaforge/miniforge3:24.3.0-0"
+
+%help
+    Viral Genomics Container v5.1
+    ==============================
+    Mamba-managed conda environment on Ubuntu 20.04 (glibc 2.31).
+    Compatible with HPC clusters running older host kernels.
+
+    Included tools
+    --------------
+    R 4.4 packages (conda-forge / CRAN):
+      tidyverse, data.table, ggplot2, cowplot, patchwork, ggforce,
+      stringi, ape, readxl, optparse, randomcoloR, chromoMap
+
+    Bioconductor (bioconda):
+      GenomicRanges, Biostrings, pwalign, rtracklayer, S4Vectors,
+      AnnotationHub, annotatr, ensembldb,
+      EnsDb.Hsapiens.v86, TxDb.Hsapiens.UCSC.hg38.knownGene
+
+    Other:
+      Perl + Getopt::Long + cpanminus
+      BLAST+ (blastn, makeblastdb, blastx, tblastn, ...)
+
+    Build (choose ONE of the following)
+    ------------------------------------
+    Option A — recommended for most HPC nodes (avoids fakeroot daemon):
+        apptainer build --ignore-fakeroot-command \
+            viral_int_R4.sif Viral_Genomics_v5.1.def
+
+    Option B — if your admin has configured /etc/subuid properly:
+        apptainer build --fakeroot \
+            viral_int_R4.sif Viral_Genomics_v5.1.def
+
+    Option C — on a machine where you have true root:
+        sudo apptainer build \
+            viral_int_R4.sif Viral_Genomics_v5.1.def
+
+    Usage
+    -----
+    # Run an R script
+    apptainer exec viral_int_R4.sif Rscript my_script.R
+
+    # Run findViralGenes_tidy.R
+    apptainer exec viral_int_R4.sif Rscript findViralGenes_tidy.R \
+        --in reads.fa --out results.tsv --reference HXB2 --virus HIV
+
+    # Run a Perl script
+    apptainer exec viral_int_R4.sif perl findViralGenes.pl \
+        --in reads.fa --out results.txt --reference HXB2 --virus HIV
+
+    # Run BLAST directly
+    apptainer exec viral_int_R4.sif blastn \
+        -query in.fasta -db mydb -out results.txt -outfmt 6
+
+    # Interactive shell
+    apptainer shell viral_int_R4.sif
+
+    Troubleshooting
+    ---------------
+    If you see "GLIBC_2.3x not found" errors, your host kernel is too old
+    for the base image. Open an issue or try building on a newer node.
+
+    If conda activate warns about shell init, the %environment block
+    handles this automatically — the warning is safe to ignore.

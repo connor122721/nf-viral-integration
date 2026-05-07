@@ -1,0 +1,46 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+        gawk \
+        gzip \
+        coreutils \
+        ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+    # UCSC bigBedToBed (statically linked, glibc-based)
+    wget -q -O /usr/local/bin/bigBedToBed \
+        http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigBedToBed
+    chmod +x /usr/local/bin/bigBedToBed
+
+%environment
+    export LC_ALL=C
+    export PATH=/usr/local/bin:$PATH
+
+%test
+    set -e
+    command -v bigBedToBed
+    command -v wget
+    command -v awk
+    command -v gzip
+    command -v sort
+    echo "All tools present."
+
+%labels
+    Author  Connor Murray
+    Purpose bigBedToBed + standard text utilities
+    Version 1.0
+
+%help
+    Minimal container providing:
+      - bigBedToBed (UCSC, latest linux.x86_64 build)
+      - wget, gawk, gzip, sort
+
+    Build:
+        apptainer build bigbed-utils.sif bigbed-utils.def
+
+    Example:
+        apptainer exec bigbed-utils.sif bigBedToBed input.bb output.bed

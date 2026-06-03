@@ -1,0 +1,47 @@
+name: lima
+description: |
+  PacBio's general-purpose tool for demultiplexing barcoded HiFi or Iso-Seq
+  reads. Vendored from nf-core/modules; canonical version at
+  https://github.com/nf-core/modules/tree/master/modules/nf-core/lima
+keywords:
+  - pacbio
+  - hifi
+  - demultiplex
+  - barcode
+tools:
+  - lima:
+      description: |
+        Demultiplex PacBio reads by barcode. Default behaviour expects
+        symmetric or tailed barcodes; configure via task.ext.args.
+      homepage:    https://lima.how
+      documentation: https://lima.how
+      tool_dev_url: https://github.com/PacificBiosciences/barcoding
+      licence: ["BSD-3-Clause-Clear"]
+
+input:
+  - meta:
+      type: map
+      description: Groovy map with at least { id: <run_or_sample_id> }
+  - reads:
+      type: file
+      description: Multiplexed PacBio HiFi BAM
+      pattern: "*.bam"
+  - barcodes:
+      type: file
+      description: Barcode FASTA (PacBio symmetric/tailed/etc.)
+      pattern: "*.{fa,fasta}"
+
+output:
+  - meta:    { type: map, description: As above }
+  - bam:     { type: file, description: One BAM per detected barcode pair, pattern: "*.bam" }
+  - pbi:     { type: file, description: PacBio index for each output bam,  pattern: "*.bam.pbi" }
+  - xml:     { type: file, description: ConsensusReadSet XML for each output, pattern: "*.consensusreadset.xml" }
+  - summary: { type: file, description: Lima run summary,                   pattern: "*.lima.summary" }
+  - counts:  { type: file, description: Per-barcode read counts,            pattern: "*.lima.counts" }
+  - report:  { type: file, description: Per-read assignment report,         pattern: "*.lima.report" }
+  - json:    { type: file, description: Lima JSON output if requested,      pattern: "*.json" }
+  - versions:{ type: file, description: Tool version YAML,                  pattern: "versions.yml" }
+
+authors:
+  - "nf-core/modules contributors (canonical implementation)"
+  - "Vendored copy maintained alongside nf-viral-integration_t2t refactor"

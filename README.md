@@ -14,11 +14,11 @@ and a clonal-persistence matrix.
 ## Quick start
 
 ```bash
-nextflow run main_2.nf \
+nextflow run main.nf \
     --samplesheet  samples.csv \
     --outdir       results/ \
     --report_genome t2t \
-    -profile       singularity
+    -profile       singularity,slurm
 ```
 
 `samples.csv` columns:
@@ -57,8 +57,7 @@ To force the entire pipeline to assume pre-demultiplexed inputs (ignoring
 
 ## Pipeline stages
 
-1. **Optional demultiplexing** (`modules/demux.nf`, `modules/nf-core/lima/`)
-   ← *new in this refactor* — runs lima once per multiplexed parent BAM
+1. **Optional demultiplexing** (`modules/demux.nf`, `modules/nf-core/lima/`) — runs lima once per multiplexed parent BAM
 2. **QC** (`bin/qc_mods.nf`) — read length, quality, contamination summaries
 3. **Read selection** (`bin/pick_reads.py`) — pulls candidate chimeric reads
 4. **Reference selection** (`bin/select_best_reference.py`) — picks the best
@@ -67,10 +66,10 @@ To force the entire pipeline to assume pre-demultiplexed inputs (ignoring
    `bin/integration_annotation.nf`)
 6. **Annotation** (`bin/1.Annotate_Flank_Bam.R`,
    `bin/2.Blast_Viral_Genes.R`, `bin/BMS.insertion.v3.3.ECR_OG.R`)
-7. **Clonal-ID assignment** (`bin/assign_clonal_ids.R`) ← *new in this refactor*
+7. **Clonal-ID assignment** (`bin/assign_clonal_ids.R`)
 8. **RepeatMasker overlap** (`modules/repeatmasker.nf`,
-   `bin/merge_repeatmasker_annotation.R`) ← *new*
-9. **Circos rendering** (`bin/make_circos.R`) ← *new*
+   `bin/merge_repeatmasker_annotation.R`)
+9. **Circos rendering** (`bin/make_circos.R`)
 10. **HTML reports** (`bin/3.Create_Sample_HTML.R`,
     `bin/4.Create_Project_HTML.R`) — refactored for low file size + multi-page
 
@@ -141,19 +140,6 @@ Inherits every column above and adds:
 | patient_id        | From sample sheet                                                        |
 | timepoint         | From sample sheet                                                        |
 
-### `*.integrations.repeatmasker.tsv` (per genome)
-
-Output of `bedtools closest` joined back via `merge_repeatmasker_annotation.R`.
-Final columns added to the integrations table:
-
-| column                   | description                                                       |
-|--------------------------|-------------------------------------------------------------------|
-| repeat_name_<genome>     | RepeatMasker name (e.g. `AluY`, `L1HS`)                           |
-| repeat_class_<genome>    | Class parsed from RepeatMasker (`SINE`, `LINE`, `LTR`, ...)       |
-| repeat_family_<genome>   | Family parsed from RepeatMasker (`Alu`, `L1`, `ERV1`, ...)        |
-| distance_to_repeat_<g>   | Distance in bp to nearest repeat. `0` = sits inside a repeat      |
-| in_repeat_<genome>       | Boolean shortcut for `distance_to_repeat_<genome> == 0`           |
-
 `<genome>` is `t2t` or `hg38`. Both pairs of columns coexist on every row so
 T2T-only and HG38-only repeats can be compared at a glance.
 
@@ -186,23 +172,6 @@ the read support sum across samples sharing that timepoint (or count when
 
 Sorted descending by `n_timepoints`, then `n_samples` — i.e. the most
 persistent clones first.
-
-## HTML reports — design notes
-
-The reports were rewritten to address the issue raised on GitHub where a
-16 MB single-page report crashed browsers on 16 GB-RAM machines:
-
-* **External images.** The circos PNG is referenced via `<img src="…">`
-  rather than embedded as base64. PNGs are tens of KB instead of hundreds.
-* **No bundled JS frameworks.** Tables use ~40 lines of vanilla JS for
-  filtering instead of pulling in DataTables (which inlines ~300 KB).
-* **Multi-page mode.** `--html_mode multi` shards the integration table by
-  chromosome — each page typically ends up under 200 KB and renders on
-  low-RAM laptops.
-* **Both modes by default.** `--html_mode both` (the default) generates
-  the slim single-page *and* the multi-page version, so users can pick.
-
-Set `params.html_mode = "single"` if you don't want the multi-page tree.
 
 ## Parameters added in this refactor
 
@@ -253,30 +222,3 @@ The lima container is pulled from biocontainers automatically by Singularity;
 no SIF rebuild required. If your cluster has no internet egress, mirror
 `quay.io/biocontainers/lima:2.9.0--h9ee0642_0` to your local registry and
 override the container path in `nextflow.config`.
-
-## Containers / dependencies
-
-The refactor is **dependency-neutral** with respect to your existing SIFs
-(`R_Genomics_v1_blast.def`, `Viral_Genomics_v5.def`). Every script uses only
-packages already installed in those images. The HTML and circos modules were
-specifically rewritten to avoid `htmltools` and `circlize` (neither of which
-is in your SIFs):
-
-| script                                | needs                                                 | SIF coverage |
-|---------------------------------------|-------------------------------------------------------|--------------|
-| `bin/assign_clonal_ids.R`             | `data.table`, `optparse`, `GenomicRanges`             | both         |
-| `bin/merge_repeatmasker_annotation.R` | `data.table`, `optparse`                              | both         |
-| `bin/make_circos.R`                   | `data.table`, `optparse`, `ggplot2` (via tidyverse)   | both         |
-| `bin/3.Create_Sample_HTML.R`          | `data.table`, `optparse` (HTML emitted with base R)   | both         |
-| `bin/4.Create_Project_HTML.R`         | `data.table`, `optparse` (HTML emitted with base R)   | both         |
-| `modules/repeatmasker.nf`             | `wget`/`curl`, `bedtools`, `bigBedToBed` *or* fallback to `rtracklayer` (already in both SIFs) | both |
-
-* No new R packages, Python packages, or shell tools are introduced.
-* The circos plot is rendered with `ggplot2 + coord_polar` (a true circular
-  layout) instead of the `circlize` package.
-* The HTML reports are emitted with base R `cat()`/`writeLines()` — no
-  `htmltools`, no `rmarkdown`, no embedded JS frameworks, just ~40 lines of
-  vanilla CSS/JS for filterable tables.
-* The `bigBedToBed` binary ships with UCSC kent-tools; if your container
-  doesn't bundle it, the process falls back to `rtracklayer::import()` which
-  is already in both SIFs.

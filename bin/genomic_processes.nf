@@ -10,7 +10,7 @@ process GFFCONVERT {
         path(annotation)
 
     output:
-        path("host.gtf"), emit: gtf
+        path("host.g*"), emit: gtf
 
     script:
         """
@@ -27,13 +27,15 @@ process GFFCONVERT {
 
         elif [[ "\${FNAME}" == *.gff3.gz ]] || [[ "\${FNAME}" == *.gff.gz ]]; then
             # Compressed GFF3/GFF - decompress then convert
-            gunzip -c "\${FNAME}" > annotation_input.gff
-            gffread annotation_input.gff -T -o host.gtf
-            rm annotation_input.gff
+            gunzip -c "\${FNAME}" > host.gff3
+            #gunzip -c "\${FNAME}" > annotation_input.gff
+            #gffread annotation_input.gff -T -F -o host.gtf
+            #rm annotation_input.gff
 
         elif [[ "\${FNAME}" == *.gff3 ]] || [[ "\${FNAME}" == *.gff ]]; then
             # Uncompressed GFF3/GFF - convert directly
-            gffread "\${FNAME}" -T -o host.gtf
+            cp "\${FNAME}" > host.gff3
+            # gffread "\${FNAME}" -T -F -o host.gtf
 
         else
             echo "ERROR: Unrecognised annotation file format: \${FNAME}" >&2
@@ -46,7 +48,7 @@ process GFFCONVERT {
 // Unmask sequences (extract HIV-aligned segments)
 process UNMASK_SEQUENCES {
     tag "${sample_id}"
-    publishDir "${params.outdir}/unmasked_sequences", mode: 'copy'
+    publishDir "${params.outdir}/final_results/${sample_id}", mode: 'copy'
 
     container params.container
 
@@ -62,8 +64,19 @@ process UNMASK_SEQUENCES {
         """
         # Reverse mask to get HIV-aligned segments
         python ${unmask_script} ${initial_sam} \\
-            ${final_masked_fa} > ${sample_id_i}.unmasked.fa
+            ${final_masked_fa} > ${sample_id_i}.tmp.unmasked.fa
 
+        # Drop records with no sequence characters
+        awk 'BEGIN{RS=">"; FS="\\n"}
+             NR>1{
+               seq="";
+               for(i=2;i<=NF;i++) seq=seq \$i;
+               gsub(/[ \\t\\r]/,"",seq);
+               if(length(seq)>0) printf ">%s", \$0
+             }' ${sample_id_i}.tmp.unmasked.fa > ${sample_id_i}.unmasked.fa
+        
+        rm *.tmp.unmasked.fa
+        echo "Finished unmasking!"
         """
 }
 

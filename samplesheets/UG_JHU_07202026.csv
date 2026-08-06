@@ -1,0 +1,66 @@
+sample_id,patient_id,year,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+107-7,107,7,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool1_ST153/m84248_260224_042938_s4.hifi_reads.univ_v3_bc1001.bam,FALSE,univ_v3_bc1001--univ_v3_bc1001,,1646,UG 2026
+107-9,107,9,T1,/home/c0murr09/BMG/smithlab/stc1646/Pool1_ST153/m84248_260224_042938_s4.hifi_reads.univ_v3_bc1002.bam,FALSE,univ_v3_bc1002--univ_v3_bc1002,,1646,UG 2026
+115-5,115,5,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool2_ST153_hifi/m84248_260225_081320_s1.hifi_reads.univ_v3_bc1003.bam,FALSE,univ_v3_bc1003--univ_v3_bc1003,,1646,UG 2026
+115-7,115,7,T1,/home/c0murr09/BMG/smithlab/stc1646/Pool2_ST153_hifi/m84248_260225_081320_s1.hifi_reads.univ_v3_bc1004.bam,FALSE,univ_v3_bc1004--univ_v3_bc1004,,1646,UG 2026
+115-9,115,9,T2,/home/c0murr09/BMG/smithlab/stc1646/Pool2_ST153_hifi/m84248_260225_081320_s1.hifi_reads.univ_v3_bc1005.bam,FALSE,univ_v3_bc1005--univ_v3_bc1005,,1646,UG 2026
+117-7,117,7,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool2_ST153_hifi/m84248_260225_081320_s1.hifi_reads.univ_v3_bc1006.bam,FALSE,univ_v3_bc1006--univ_v3_bc1006,,1646,UG 2026
+121-1,121,1,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool1_ST153/m84248_260224_042938_s4.hifi_reads.univ_v3_bc1005.bam,FALSE,univ_v3_bc1005--univ_v3_bc1005,,1646,UG 2026
+121-7,121,7,T1,/home/c0murr09/BMG/smithlab/stc1646/Pool1_ST153/m84248_260224_042938_s4.hifi_reads.univ_v3_bc1006.bam,FALSE,univ_v3_bc1006--univ_v3_bc1006,,1646,UG 2026
+121-9,121,9,T2,/home/c0murr09/BMG/smithlab/stc1646/Pool3_ST153/m84248_260225_101641_s2.hifi_reads.univ_v3_bc1007.bam,FALSE,univ_v3_bc1007--univ_v3_bc1007,,1646,UG 2026
+123-1,123,1,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool3_ST153/m84248_260225_101641_s2.hifi_reads.univ_v3_bc1008.bam,FALSE,univ_v3_bc1008--univ_v3_bc1008,,1646,UG 2026
+123-7,123,7,T1,/home/c0murr09/BMG/smithlab/stc1646/Pool3_ST153/m84248_260225_101641_s2.hifi_reads.univ_v3_bc1009.bam,FALSE,univ_v3_bc1009--univ_v3_bc1009,,1646,UG 2026
+123-9,123,9,T2,/home/c0murr09/BMG/smithlab/stc1646/Pool3_ST153/m84248_260225_101641_s2.hifi_reads.univ_v3_bc1010.bam,FALSE,univ_v3_bc1010--univ_v3_bc1010,,1646,UG 2026
+124-7,124,7,T0,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_A01/hifi_reads/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1005.bam,FALSE,univ_v3_bc1005--univ_v3_bc1005,,1621,UG 2026
+126-1,126,1,T0,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_A01/hifi_reads/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1001.bam,FALSE,univ_v3_bc1001--univ_v3_bc1001,,1621,UG 2026
+126-7,126,7,T1,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_A01/hifi_reads/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1006.bam,FALSE,univ_v3_bc1006--univ_v3_bc1006,,1621,UG 2026
+126-9,126,9,T2,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_A01/hifi_reads/m84248_251210_215736_s1.hifi_reads.univ_v3_bc1007.bam,FALSE,univ_v3_bc1007--univ_v3_bc1007,,1621,UG 2026
+135-7,135,7,T0,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_B01/hifi_reads/m84248_251211_000049_s2.hifi_reads.univ_v3_bc1002.bam,FALSE,univ_v3_bc1002--univ_v3_bc1002,,1621,UG 2026
+135-9,135,9,T1,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_B01/hifi_reads/m84248_251211_000049_s2.hifi_reads.univ_v3_bc1008.bam,FALSE,univ_v3_bc1008--univ_v3_bc1008,,1621,UG 2026
+147-1,147,1,T0,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_B01/hifi_reads/m84248_251211_000049_s2.hifi_reads.univ_v3_bc1009.bam,FALSE,univ_v3_bc1009--univ_v3_bc1009,,1621,UG 2026
+147-7,147,7,T1,/home/c0murr09/BMG/smithlab/STC_1621_ST153_Uganda/1_B01/hifi_reads/m84248_251211_000049_s2.hifi_reads.univ_v3_bc1010.bam,FALSE,univ_v3_bc1010--univ_v3_bc1010,,1621,UG 2026
+147-9,147,9,T2,/home/c0murr09/BMG/smithlab/stc1646/Pool6_ST153/m84248_260225_121959_s3.hifi_reads.univ_v3_bc1003.bam,FALSE,univ_v3_bc1003--univ_v3_bc1003,,1646,UG 2026
+151-1,151,1,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool6_ST153/m84248_260225_121959_s3.hifi_reads.univ_v3_bc1004.bam,FALSE,univ_v3_bc1004--univ_v3_bc1004,,1646,UG 2026
+151-7,151,7,T1,/home/c0murr09/BMG/smithlab/stc1646/Pool6_ST153/m84248_260225_121959_s3.hifi_reads.univ_v3_bc1001.bam,FALSE,univ_v3_bc1001--univ_v3_bc1001,,1646,UG 2026
+151-9,151,9,T2,/home/c0murr09/BMG/smithlab/stc1646/Pool6_ST153/m84248_260225_121959_s3.hifi_reads.univ_v3_bc1002.bam,FALSE,univ_v3_bc1002--univ_v3_bc1002,,1646,UG 2026
+163-7,163,7,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool7_ST153/m84248_260225_142324_s4.hifi_reads.univ_v3_bc1003.bam,FALSE,univ_v3_bc1003--univ_v3_bc1003,,1646,UG 2026
+174-4,174,4,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool7_ST153/m84248_260225_142324_s4.hifi_reads.univ_v3_bc1004.bam,FALSE,univ_v3_bc1004--univ_v3_bc1004,,1646,UG 2026
+201-2,201,2,T0,/home/c0murr09/BMG/smithlab/stc1646/Pool7_ST153/m84248_260225_142324_s4.hifi_reads.univ_v3_bc1005.bam,FALSE,univ_v3_bc1005--univ_v3_bc1005,,1646,UG 2026
+201-7,201,7,T1,/home/c0murr09/BMG/smithlab/stc1646/1_A01/hifi_reads/m84248_260306_211144_s1.hifi_reads.univ_v3_bc1006.bam,FALSE,univ_v3_bc1006--univ_v3_bc1006,,1646,UG 2026
+211-2,211,2,T0,/home/c0murr09/BMG/smithlab/stc1646/1_A01/hifi_reads/m84248_260306_211144_s1.hifi_reads.univ_v3_bc1007.bam,FALSE,univ_v3_bc1007--univ_v3_bc1007,,1646,UG 2026
+211-7,211,7,T1,/home/c0murr09/BMG/smithlab/stc1646/1_A01/hifi_reads/m84248_260306_211144_s1.hifi_reads.univ_v3_bc1008.bam,FALSE,univ_v3_bc1008--univ_v3_bc1008,,1646,UG 2026
+107-4,107,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230610_114619.bc1001--bc1001.bam,FALSE,,,437,UG 2026
+117-5,117,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230610_114619.bc1002--bc1002.bam,FALSE,,,437,UG 2026
+118-5,118,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230610_114619.bc1003--bc1003.bam,FALSE,,,437,UG 2026
+203-3,203,3,T3,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230610_114619.bc1004--bc1004.bam,FALSE,,,437,UG 2026
+107-5,107,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230616_204753.bc1001--bc1001.bam,FALSE,,,438,UG 2026
+160-5,160,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230616_204753.bc1003--bc1003.bam,FALSE,,,438,UG 2026
+171-5,171,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230616_204753.bc1002--bc1002.bam,FALSE,,,438,UG 2026
+174-2,174,2,T2,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230616_204753.bc1004--bc1004.bam,FALSE,,,438,UG 2026
+117-4,117,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230618_024732.bc1005--bc1005.bam,FALSE,,,439,UG 2026
+118-4,118,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230618_024732.bc1006--bc1006.bam,FALSE,,,439,UG 2026
+124-2,124,2,T2,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230618_024732.bc1007--bc1007.bam,FALSE,,,439,UG 2026
+128-4,128,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230618_024732.bc1008--bc1008.bam,FALSE,,,439,UG 2026
+124-5,124,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230619_085913.bc1005--bc1005.bam,FALSE,,,440,UG 2026
+131-2,131,2,T2,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230619_085913.bc1006--bc1006.bam,FALSE,,,440,UG 2026
+163-4,163,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230619_085913.bc1007--bc1007.bam,FALSE,,,440,UG 2026
+163-5,163,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230619_085913.bc1008--bc1008.bam,FALSE,,,440,UG 2026
+131-5,131,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230620_151035.bc1005--bc1005.bam,FALSE,,,441,UG 2026
+160-4,160,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230620_151035.bc1006--bc1006.bam,FALSE,,,441,UG 2026
+167-4,167,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230620_151035.bc1007--bc1007.bam,FALSE,,,441,UG 2026
+174-5,174,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m64152e_230620_151035.bc1008--bc1008.bam,FALSE,,,441,UG 2026
+160-5-D,160,5,T5,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241001_000719_s2.hifi_reads.univ_v3_bc1002.bam,FALSE,,,965,UG 2026
+171-2,171,2,T2,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241001_020839_s3.hifi_reads.univ_v3_bc1003.bam,FALSE,,,966,UG 2026
+STC968,STC968,0,T0,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241024_190134_s4.hifi_reads.univ_v3_bc1004.bam,FALSE,,,968,UG 2026
+171-4,171,4,T4,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241025_010550_s3.hifi_reads.univ_v3_bc1007.bam,FALSE,,,999,UG 2026
+171-7,171,7,T7,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241114_204946_s4.hifi_reads.univ_v3_bc1008.bam,FALSE,,,1000,UG 2026
+160-2,160,2,T2,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241114_225106_s1.hifi_reads.univ_v3_bc1005.bam,FALSE,,,1006,UG 2026
+160-7,160,7,T7,/home/c0murr09/BMG/smithlab/UG_2024_Cohort_HIV_smrtcap_csm_06032026/m84248_241115_005230_s2.hifi_reads.univ_v3_bc1006.bam,FALSE,,,1007,UG 2026
+K109-574R,K109-574R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-1/1_B01/hifi_reads/m84248_260409_213346_s2.hifi_reads.bam,TRUE,univ_v3_bc1001--univ_v3_bc1001,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K112-205R,K112-205R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-1/1_B01/hifi_reads/m84248_260409_213346_s2.hifi_reads.bam,TRUE,univ_v3_bc1002--univ_v3_bc1002,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K104-882R,K104-882R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-1/1_B01/hifi_reads/m84248_260409_213346_s2.hifi_reads.bam,TRUE,univ_v3_bc1003--univ_v3_bc1003,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K114-802R,K114-802R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-1/1_B01/hifi_reads/m84248_260409_213346_s2.hifi_reads.bam,TRUE,univ_v3_bc1004--univ_v3_bc1004,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K102-336R,K102-336R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-2/1_C01/hifi_reads/m84248_260409_233704_s3.hifi_reads.bam,TRUE,univ_v3_bc1001--univ_v3_bc1001,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K102-159R,K102-159R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-2/1_C01/hifi_reads/m84248_260409_233704_s3.hifi_reads.bam,TRUE,univ_v3_bc1002--univ_v3_bc1002,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K119-491R,K119-491R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-2/1_C01/hifi_reads/m84248_260409_233704_s3.hifi_reads.bam,TRUE,univ_v3_bc1003--univ_v3_bc1003,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026
+K102-213R,K102-213R,,,/home/c0murr09/BMG/smithlab/STC1654_JHU_Urvi_SMRTcap/Pool-2/1_C01/hifi_reads/m84248_260409_233704_s3.hifi_reads.bam,TRUE,univ_v3_bc1004--univ_v3_bc1004,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned_STC1654_JHU_Urvi.fasta,1654,Urvi JHU 2026

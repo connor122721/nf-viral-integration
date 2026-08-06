@@ -22,7 +22,7 @@ process LIMA {
 
     conda "bioconda::lima=2.9.0"
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
-        'https://depot.galaxyproject.org/singularity/lima:2.9.0--h9ee0642_0' :
+        'https://depot.galaxyproject.org/singularity/lima%3A26.2.1--h9ee0642_0' :
         'staphb/lima:2.13.0' }"
 
     input:

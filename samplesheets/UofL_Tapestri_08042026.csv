@@ -1,0 +1,8 @@
+sample_id,patient_id,year,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+MHB676_Heart_2023,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/STC-Smith-4_SMRTcap_Pool7/bc1004/demultiplex.bc1004--bc1004.bam,FALSE,,,147,Tapestri 2026
+MHB676_LN,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1004/demultiplex.bc1004--bc1004.bam,FALSE,,,147,Tapestri 2026
+MHB676_Lung,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1002/demultiplex.bc1002--bc1002.bam,FALSE,,,147,Tapestri 2026
+MHB676_Spleen,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/Ghazal/SL130_CNS_Project/STC892_SP14/bc1006/m84248_240814_093329_s3.hifi_reads.univ_v3_bc1006.bam,FALSE,,,892,Tapestri 2026
+MHB676_FrontalLobe,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/Ghazal/SL130_CNS_Project/STC902_B16/bc1004/m84248_240820_003621_s4.hifi_reads.univ_v3_bc1004.bam,FALSE,,,902,Tapestri 2026
+MHB676_BasalGanglia,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/Ghazal/SL130_CNS_Project/BasalGanglia/new/bc1002/m84248_250919_192326_s1.hifi_reads.univ_v3_bc1002.bam,FALSE,,,130,Tapestri 2026
+MHB676_Heart_bc1002_2023,MHB676,,,/home/kyinbre/SmithLab/SMRTcap/STC-Smith-4_SMRTcap_Pool7/bc1002/demultiplex.bc1002--bc1002.bam,FALSE,,,147,Tapestri 2026

@@ -29,7 +29,7 @@ opt <- parse_args(OptionParser(option_list = list(
               help = "1-based key column index in the viral file"),
   make_option("--out", type = "character", default = "combined.csv")
 )))
-annot <- fread(opt$annotated, sep = ",",  fill = TRUE)
+annot <- fread(opt$annotated,  fill = TRUE)
 viral <- fread(opt$viral, sep = ",", fill = TRUE)
 out <- merge(annot, viral, by = "READ")
 fwrite(out, opt$out, sep = ",", quote = TRUE, na = "")

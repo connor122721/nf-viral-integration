@@ -1,0 +1,3 @@
+sample_id,patient_id,year,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+ES-9,ES,,,/home/c0murr09/BMG/smithlab/STC1683_SL181_Blankson_SMRTcap/06-stc1683-sl181-smrtcap-p-1/STC1683_SL181_SMRTcap_Pool_1/1_B01/hifi_reads/m84248_260609_180037_s3.hifi_reads.bam,TRUE,univ_v3_bc1001--univ_v3_bc1001,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1683,Blankson 2026
+CP-10,CP,,,/home/c0murr09/BMG/smithlab/STC1683_SL181_Blankson_SMRTcap/06-stc1683-sl181-smrtcap-p-1/STC1683_SL181_SMRTcap_Pool_1/1_B01/hifi_reads/m84248_260609_180037_s3.hifi_reads.bam,TRUE,univ_v3_bc1002--univ_v3_bc1002,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1683,Blankson 2026

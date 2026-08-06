@@ -1,0 +1,21 @@
+sample_id,patient_id,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+05_5,05_5_pool1,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_1/1_D01/hifi_reads/m84248_260605_170202_s4.hifi_reads.bam,TRUE,univ_v3_bc1001--univ_v3_bc1001,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+05_9,05_9_pool1,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_1/1_D01/hifi_reads/m84248_260605_170202_s4.hifi_reads.bam,TRUE,univ_v3_bc1002--univ_v3_bc1002,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_19,151_19_pool1,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_1/1_D01/hifi_reads/m84248_260605_170202_s4.hifi_reads.bam,TRUE,univ_v3_bc1003--univ_v3_bc1003,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_21,151_21_pool1,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_1/1_D01/hifi_reads/m84248_260605_170202_s4.hifi_reads.bam,TRUE,univ_v3_bc1004--univ_v3_bc1004,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_22,151_22_pool2,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_2/2_D01/hifi_reads/m84248_260605_190518_s1.hifi_reads.bam,TRUE,univ_v3_bc1006--univ_v3_bc1006,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_23,151_23_pool2,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_2/2_D01/hifi_reads/m84248_260605_190518_s1.hifi_reads.bam,TRUE,univ_v3_bc1007--univ_v3_bc1007,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_24,151_24_pool2,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_2/2_D01/hifi_reads/m84248_260605_190518_s1.hifi_reads.bam,TRUE,univ_v3_bc1004--univ_v3_bc1004,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+05_D,05_D_pool2,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pools_1_2/Pool_2/2_D01/hifi_reads/m84248_260605_190518_s1.hifi_reads.bam,TRUE,univ_v3_bc1009--univ_v3_bc1009,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_25,151_25_pool3,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pool_3/06-stc1682-sl195-smrtcap-pools-1-3/Pool_3/1_A01/hifi_reads/m84248_260609_155721_s2.hifi_reads.bam,TRUE,univ_v3_bc1006--univ_v3_bc1006,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_26,151_26_pool3,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pool_3/06-stc1682-sl195-smrtcap-pools-1-3/Pool_3/1_A01/hifi_reads/m84248_260609_155721_s2.hifi_reads.bam,TRUE,univ_v3_bc1007--univ_v3_bc1007,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_27,151_27_pool3,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pool_3/06-stc1682-sl195-smrtcap-pools-1-3/Pool_3/1_A01/hifi_reads/m84248_260609_155721_s2.hifi_reads.bam,TRUE,univ_v3_bc1008--univ_v3_bc1008,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+151_D,151_D_pool3,,/home/c0murr09/BMG/smithlab/STC1682_SL195_Noemi_SMRTcap_Pool_3/06-stc1682-sl195-smrtcap-pools-1-3/Pool_3/1_A01/hifi_reads/m84248_260609_155721_s2.hifi_reads.bam,TRUE,univ_v3_bc1010--univ_v3_bc1010,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1682,Emi 2026
+P1_JRCSF,P1,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P1.bam,FALSE,,,ST172,Emi 2026
+P2_JRCSF,P2,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P2.bam,FALSE,,,ST172,Emi 2026
+P3_JRCSF,P3,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P3.bam,FALSE,,,ST172,Emi 2026
+P4_JRCSF,P4,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P4.bam,FALSE,,,ST172,Emi 2026
+P6_JRCSF,P6,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P6.bam,FALSE,,,ST172,Emi 2026
+P7_JRCSF,P7,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P7.bam,FALSE,,,ST172,Emi 2026
+P8_JRCSF,P8,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P8.bam,FALSE,,,ST172,Emi 2026
+P9_JRCSF,P9,,/home/c0murr09/BMG/smithlab/ST172-JRCSF/P9.bam,FALSE,,,ST172,Emi 2026

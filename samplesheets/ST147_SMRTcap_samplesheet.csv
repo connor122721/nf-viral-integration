@@ -1,0 +1,5 @@
+sample_id,patient_id,bam,demux,barcode_fasta,barcode,tissue
+MHBB676_SP,MHBB676,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1001/demultiplex.bc1001--bc1001.bam,FASLE,,bc1001--bc1001,Spleen
+MHBB676_LU,MHBB676,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1002/demultiplex.bc1002--bc1002.bam,FASLE,,bc1002--bc1002,Lung
+MHBB676_010017,MHBB676,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1003/demultiplex.bc1003--bc1003.bam,FASLE,,bc1003--bc1003,Brain
+MHBB676_LN,MHBB676,/home/kyinbre/SmithLab/SMRTcap/ST147_Pool3/bc1004/demultiplex.bc1004--bc1004.bam,FASLE,,bc1004--bc1004,Lymph Node

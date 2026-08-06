@@ -191,7 +191,7 @@ process MULTI_REFERENCE_MAPPING {
         path(host_genome)
 
     output:
-        tuple val(sample_id), path(viral_genome), path("*.sam"), path("*stats.txt"), path("*sorted.sam.fa"), emit: results
+        tuple val(sample_id), path(viral_genome), path("*sorted.sam"), path("*primary.sam"), path("*stats.txt"), path("*sorted.sam.fa"), emit: results_selectBest
         tuple val(sample_id), path("*.pbmarkdup.log")
         tuple val(sample_id), path("*.readnames.txt")
         tuple val(sample_id), path("*.sorted.bam"), emit: sorted_bam
@@ -201,27 +201,30 @@ process MULTI_REFERENCE_MAPPING {
         def ref_name = viral_genome.baseName
         def sample_id_i = sample_id.replaceAll(/.bam$/, '')
     """
-    # Conditionally combine host and viral genomes for hybrid assembly approach
+    # Build combined host+viral reference once
     mkdir -p ${projectDir}/tmp
-    if [ ! -f ${projectDir}/${ref_name}_hybridhost.fa ]; then
+    if [ ! -f ${projectDir}/tmp/${ref_name}_hybridhost.fa ]; then
         cat ${viral_genome} ${host_genome} > ${projectDir}/tmp/${ref_name}_hybridhost.fa
     fi
 
-    # Pass 1: map to viral only, emit the reads that hit virus as FASTQ
+    # Pass 1: select reads that hit virus
     minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
         ${viral_genome} ${reads} | \\
-        samtools fastq -@ ${params.threads} -F 0x4 - | \\
+        samtools fastq -@ ${params.threads} -F 0x904 - | \\
         gzip > ${sample_id_i}_viralhits.fastq.gz
 
-    # Pass 2: map ONLY those reads to the combined reference
+    # Pass 2: map selected reads to the combined reference
     minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
         ${projectDir}/tmp/${ref_name}_hybridhost.fa ${sample_id_i}_viralhits.fastq.gz | \\
         samtools view -h -F 4 -b | \\
         samtools sort -@ ${params.threads} -o ${sample_id_i}_vs_${ref_name}.sorted.bam
 
+    # Index required by parseSAM's region query (samtools view bam HIV:1-1000000)
+    samtools index ${sample_id_i}_vs_${ref_name}.sorted.bam
     samtools view ${sample_id_i}_vs_${ref_name}.sorted.bam | cut -f1 | sort -u > \\
         ${sample_id_i}_vs_${ref_name}.allmapped.readnames.txt
 
+    # pbmarkdup input
     samtools fastq -@ ${params.threads} ${sample_id_i}_vs_${ref_name}.sorted.bam > \\
         ${sample_id_i}_vs_${ref_name}.fastq
 
@@ -233,14 +236,20 @@ process MULTI_REFERENCE_MAPPING {
     grep "@" ${sample_id_i}_vs_${ref_name}.dups.fastq | sed 's/@//g' | cut -f1 -d" " > \\
         ${sample_id_i}_vs_${ref_name}.dups.readnames.txt
 
+    # Full-flag SAM (supplementaries intact) for flagstat / inspection.
+    # --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt
     samtools view -h ${sample_id_i}_vs_${ref_name}.sorted.bam \\
-        --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt \\
         -o ${sample_id_i}_vs_${ref_name}.sorted.sam
 
     samtools flagstat ${sample_id_i}_vs_${ref_name}.sorted.sam > \\
         ${sample_id_i}_vs_${ref_name}.stats.txt
 
-    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}.sorted.sam > \\
+    # Primary-only SAM for mask.py -> exactly one FASTA record per read.
+    # --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt
+    samtools view -h -F 0x900 ${sample_id_i}_vs_${ref_name}.sorted.bam \\
+        -o ${sample_id_i}_vs_${ref_name}.primary.sam
+
+    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}.primary.sam > \\
         ${sample_id_i}_vs_${ref_name}.sorted.sam.fa
     """
 }
@@ -252,7 +261,7 @@ process SELECT_BEST_REFERENCE {
     container params.container
 
     input:
-        tuple val(sample_id), path(viral_genomes), path(sam_files), path(stats_files), path(sort_fa)
+        tuple val(sample_id), path(viral_genomes), path(sam_files_supp), path(sam_files_nonsupp), path(stats_files), path(sort_fa)
 
     output:
         tuple val(sample_id), path("*best_reference.txt"), emit: best_ref_name
@@ -263,7 +272,7 @@ process SELECT_BEST_REFERENCE {
         tuple val(sample_id), path("*final.masked.fa"), emit: mask_fa
 
     script:
-        def sam_list = sam_files.collect{ it }.join(' ')
+        def sam_list = sam_files_supp.collect{ it }.join(' ')
         def stats_list = stats_files.collect{ it }.join(' ')
         def genome_list = viral_genomes.collect{ it }.join(' ')
         def sample_id_i = sample_id.replaceAll(/.bam$/, '')
@@ -277,9 +286,9 @@ process SELECT_BEST_REFERENCE {
         --output-comparison ${sample_id_i}_mapping_comparison.txt \\
         --output-detailed ${sample_id_i}_detailed_metrics.txt
 
-    BEST_REF=\$(head -n1 ${sample_id_i}_best_reference.txt)
+    BEST_REF=\$(head -n1 ${sample_id_i}_best_reference.txt )
     cp ${sample_id_i}_vs_\${BEST_REF}.sam ${sample_id_i}_vs_\${BEST_REF}_best_reference.sam
-    cp ${sample_id_i}_vs_\${BEST_REF}*.sam.fa ${sample_id_i}.final.masked.fa 
+    cp ${sample_id_i}_vs_\${BEST_REF}.sam.fa ${sample_id_i}.final.masked.fa
     """
 }
 
@@ -340,7 +349,7 @@ workflow {
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     annotate_script_ch = Channel.fromPath("${script_dir}/1.annotate_integrations_HIV.R", checkIfExists:true)
     blast_script_ch = Channel.fromPath("${script_dir}/findHIVSIVGeneRegionsV9.6", checkIfExists: true)
-    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM.pl", checkIfExists: true)
+    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM_v2.pl", checkIfExists: true)
     report_script_ch = Channel.fromPath("${script_dir}/3.Create_Sample_HTML.R", checkIfExists: true)
 
     // ==================================================================================
@@ -451,12 +460,12 @@ workflow {
     // ==================================================================================
     MULTI_REFERENCE_MAPPING(input_reads_ch, viral_genomes_ch, host_genome_ch.first())
 
-    grouped_results = MULTI_REFERENCE_MAPPING.out.results
+    grouped_results = MULTI_REFERENCE_MAPPING.out.results_selectBest
         .groupTuple(by: 0, size: n_viral_refs, remainder: true)
-        .map { sample_id, viral_genomes, sams, stats, fasta ->
-            tuple(sample_id, viral_genomes, sams, stats, fasta) }
+        .map { sample_id, viral_genomes, sams, primary_sams, stats, fasta ->
+            tuple(sample_id, viral_genomes, sams, primary_sams,stats, fasta) }
 
-    QUALIMAP(MULTI_REFERENCE_MAPPING.out.sorted_bam)
+    //QUALIMAP(MULTI_REFERENCE_MAPPING.out.sorted_bam)
     SELECT_BEST_REFERENCE(grouped_results)
 
     // every sample that entered the step
@@ -495,8 +504,8 @@ workflow {
 
     // QC output
     MULTIQC(FASTQC.out.zip
-        .mix(MULTI_REFERENCE_MAPPING.out.results.map { it[3] })
-        .mix(QUALIMAP.out.results)
+        .mix(MULTI_REFERENCE_MAPPING.out.results_selectBest.map { it[3] })
+        //.mix(QUALIMAP.out.results)
         .collect())
 }
 
@@ -514,18 +523,7 @@ workflow.onComplete {
     log.info ""
     log.info "Key Results:"
     log.info "  01_reference_selection/   - Best viral reference & initial mapping"
-    log.info "  04_final_results/         - Integration sites in human genome"
-    log.info "  <sample>/repeats/         - RepeatMasker overlap (T2T + HG38)"
-    log.info "  <sample>/circos/          - Per-sample circos PNG"
-    log.info "  <sample>/report/          - Slim single-page + multi-page HTML"
-    log.info "  project/circos/           - Project-wide circos PNG"
-    log.info "  project/report/           - Project rollup HTML (single + multi-page)"
+    log.info "  final_results/            - Integration sites in human genome"
     log.info ""
-    log.info "Integration Sites:"
-    log.info "  ${params.outdir}/04_final_results/*integration_sites.txt"
-    log.info "  ${params.outdir}/04_final_results/*integration_summary.txt"
-    log.info ""
-    log.info "Iteration Logs:"
-    log.info "  ${params.outdir}/02_iterative_masking/*_iteration_log.txt"
     log.info "========================================================================================"
 }

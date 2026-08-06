@@ -7,62 +7,80 @@ nextflow.enable.dsl = 2
 
 process INTEGRATION_ANNOTATE {
     tag "${sample_id}"
-    publishDir "${params.outdir}/04_final_results/${sample_id}/annotations", mode: 'copy'
-
+    publishDir "${params.outdir}/final_results/${sample_id}", mode: 'copy'
     container params.container_R
 
     input:
-        tuple val(sample_id), path(csv), path(viral_fasta), path(unmasked_fa), path(input_sam)
+        tuple val(sample_id), path(viral_fasta), path(unmasked_fa), path(input_sam)
+        path clone_calling_script
         path annotate_script
         path blast_script
         path sample_report_script
         path gtf
-	path repeats
+	    path repeats
 
     output:
         tuple val(sample_id), path("*combined.csv"), emit: csv
-        //path("*report.html"), emit: sample_html, optional: true
-        //path("*circos.png"), emit: circos, optional: true
-	path("*clone*"), optional: true
-        path("*nwk"), emit: nwk, optional: true
+        tuple val(sample_id), path("*annotated.csv"), emit: csv_ann
         path("*viral.txt"), emit: txt
+        path("*mapping_comparison.txt") 
+        path("pbmarkdup_logs/")
+        path("*png")
+        path("CCS_ReadIDs*")
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
         def report_genome = params.report_genome ?: 't2t'
         """
-        # 1. Annotate ---------------------------------------------------------
-        Rscript ${annotate_script} \\
-            ${csv} \\
-            ${unmasked_fa} \\
-            ${viral_fasta} \\
-            ${gtf} \\
-            ${sample_id_i} \\
-            ${input_sam} \\
-            ${repeats}/*bed.gz
+        reference_name=\$(head -n1 ${viral_fasta} | cut -f1 -d" " | sed 's/>//g' | rev  | cut -f1 -d"." | rev )
+        ref_name=\$(head -n1 ${viral_fasta} | cut -f1 -d" " | sed 's/>//g' )
 
-        # 2. BLAST viral genes -----------------------------------------------
-        reference_name=\$(head -n1 ${viral_fasta} | cut -f1 -d" " | sed 's/>//g' | rev | cut -f1 -d"." | rev)
+        samtools view ${input_sam} -b > tmp_working.bam
+        samtools index tmp_working.bam
+        
+        # Run Perl script for clone-calling
+        perl ${clone_calling_script} \\
+            tmp_working.bam \\
+            \${ref_name} \\
+            ${sample_id_i}
+
+        # 1. BLAST viral genes -----------------------------------------------
         mkdir -p ${projectDir}/tmp
 
-        Rscript ${blast_script} \\
+        perl ${blast_script} \\
             --prefix ${projectDir} \\
             --in ${unmasked_fa} \\
             --virus HIV \\
             --reference \${reference_name}* \\
-            --out ${sample_id_i}.viral
-
+            --out ${sample_id_i}.viral.txt
+        
         # Strip trailing /ccs read-ID suffixes from the viral hits
+        sed 's/\t/,/g' ${sample_id_i}.viral.txt > ${sample_id_i}.viral.csv
         sed 's|/ccs/[0-9]*|/ccs|' ${sample_id_i}.viral.csv > ${sample_id_i}.viral_tmp.csv
         sed -i 's/CCS_READ_ID/READ/g' ${sample_id_i}.viral_tmp.csv
 
-        # 3. PROPER MERGE
+        # 2. PROPER MERGE
         Rscript ${projectDir}/bin/merge_annotated_viral.R \\
-            --annotated ${sample_id_i}_annotated.csv \\
+            --annotated *_MasterOfMasterFrame.tsv \\
             --viral ${sample_id_i}.viral_tmp.csv \\
-            --annot_key_col 7 \\
+            --annot_key_col 1 \\
             --viral_key_col 1 \\
             --out ${sample_id_i}.combined.csv
+
+        # Annotate with gtf/repeatmasker
+        Rscript ${annotate_script} \\
+            ${sample_id_i}.combined.csv \\
+            ${gtf} \\
+            ${repeats}/*bed.gz \\
+            ${sample_id_i}.annotated.csv
+
+        # Move over intermediate log files!
+        cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*_mapping_comparison.txt .
+        mkdir -p pbmarkdup_logs/
+        cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*.pbmarkdup.log ./pbmarkdup_logs/
+
+        rm tmp*
+        echo "Finished!"
         """
 }
 

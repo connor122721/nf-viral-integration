@@ -1,0 +1,18 @@
+sample_id,patient_id,year,timepoint,bam,fastq,demux,barcode,barcode_fasta,STC,project
+260220_2_smrtcap_pool_5_BA_CAP188,CAP188,,6090,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_2-SMRTcap_pool_5_BA.fastq.zip,TRUE,bc1002,,,Melissa-Rose 2026
+260220_2_smrtcap_pool_5_BA_CAP206,CAP206,,6130,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_2-SMRTcap_pool_5_BA.fastq.zip,TRUE,bc1017,,,Melissa-Rose 2026
+260220_2_smrtcap_pool_5_BA_CAP287,CAP287,,1060,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_2-SMRTcap_pool_5_BA.fastq.zip,TRUE,bc1001,,,Melissa-Rose 2026
+260220_2_smrtcap_pool_5_BA_CAP337,CAP337,,7040,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_2-SMRTcap_pool_5_BA.fastq.zip,TRUE,bc1004,,,Melissa-Rose 2026
+260313_2_HiFi-SMRTcap_BA_pool_2_CAP217,CAP217,,6061,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_2_HiFi-SMRTcap_BA_pool_2.fastq.zip,TRUE,bc1005,,,Melissa-Rose 2026
+260313_2_HiFi-SMRTcap_BA_pool_2_CAP222,CAP222,,6130,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_2_HiFi-SMRTcap_BA_pool_2.fastq.zip,TRUE,bc1006,,,Melissa-Rose 2026
+260313_2_HiFi-SMRTcap_BA_pool_2_CAP268,CAP268,,6110,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_2_HiFi-SMRTcap_BA_pool_2.fastq.zip,TRUE,bc1007,,,Melissa-Rose 2026
+260313_2_HiFi-SMRTcap_BA_pool_2_CAP277,CAP277,,6040,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_2_HiFi-SMRTcap_BA_pool_2.fastq.zip,TRUE,bc1008,,,Melissa-Rose 2026
+260313_2_HiFi-SMRTcap_BA_pool_2_CAP316,CAP316,,6130,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_2_HiFi-SMRTcap_BA_pool_2.fastq.zip,TRUE,bc1003,,,Melissa-Rose 2026
+260220_3-SMRTcap_LT_pool_1_CAP221,CAP221,,6100,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_3-SMRTcap_LT_pool_1.fastq.zip,TRUE,bc1015,,,Melissa-Rose 2026
+260220_3-SMRTcap_LT_pool_1_CAP228,CAP228,,6090,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_3-SMRTcap_LT_pool_1.fastq.zip,TRUE,bc1014,,,Melissa-Rose 2026
+260220_3-SMRTcap_LT_pool_1_CAP292,CAP292,,6080,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_3-SMRTcap_LT_pool_1.fastq.zip,TRUE,bc1016,,,Melissa-Rose 2026
+260220_3-SMRTcap_LT_pool_1_CAP319,CAP319,,6090,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260220_3-SMRTcap_LT_pool_1.fastq.zip,TRUE,bc1017,,,Melissa-Rose 2026
+260313_1_HiFi-SMRTcap_LT_pool_2_CAP221,CAP221,,6070,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_1_HiFi-SMRTcap_LT_pool_2.fastq.zip,TRUE,bc1018,,,Melissa-Rose 2026
+260313_1_HiFi-SMRTcap_LT_pool_2_CAP228,CAP228,,6060,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_1_HiFi-SMRTcap_LT_pool_2.fastq.zip,TRUE,bc1019,,,Melissa-Rose 2026
+260313_1_HiFi-SMRTcap_LT_pool_2_CAP292,CAP292,,6050,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_1_HiFi-SMRTcap_LT_pool_2.fastq.zip,TRUE,bc1020,,,Melissa-Rose 2026
+260313_1_HiFi-SMRTcap_LT_pool_2_CAP319,CAP319,,6050,,/home/c0murr09/BMG/smithlab/MelissaRose_smrtcap_2026/260313_1_HiFi-SMRTcap_LT_pool_2.fastq.zip,TRUE,bc1021,,,Melissa-Rose 2026

@@ -1,0 +1,2 @@
+sample_id,patient_id,year,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+VI_BL,VI_BL,,,/home/c0murr09/BMG/smithlab/STC1715_SL159_Virender_SMRTcap_rerun/08-stc1715-sl159-virender-smrtcap-rerun/STC1715_SL159_Virender_SMRTcap_rerun/1_D01/hifi_reads/m84248_260805_020420_s3.hifi_reads.bam,TRUE,univ_v3_bc1001--univ_v3_bc1001,/home/c0murr09/barcodes_2026/FL_IGcapPrimers_cleaned.fasta,1715,Virender 2026_Rerun

@@ -27,6 +27,7 @@ process INTEGRATION_ANNOTATE {
         path("pbmarkdup_logs/")
         path("*png")
         path("CCS_ReadIDs*")
+        path("blast_output/")
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
@@ -78,6 +79,14 @@ process INTEGRATION_ANNOTATE {
         cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*_mapping_comparison.txt .
         mkdir -p pbmarkdup_logs/
         cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*.pbmarkdup.log ./pbmarkdup_logs/
+        mkdir -p blast_output/
+
+        # Conditionally copy output files
+        if ls *_matches.fa 1> /dev/null 2>&1; then
+            cp *_matches.fa blast_output/
+        else 
+            echo "Proviral BLAST screen did not start OR was inconclusive." > blast_output/warning_log.txt
+        fi
 
         rm tmp*
         echo "Finished!"

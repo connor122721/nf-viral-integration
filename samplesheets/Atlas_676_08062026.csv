@@ -1,0 +1,6 @@
+sample_id,patient_id,year,timepoint,bam,demux,barcode,barcode_fasta,STC,project
+676_Heart_Bulk,676,,,/home/c0murr09/BMG/smithlab/STC1718_676_Tissue_Atlas_Heart/08-stc1718-sl179-676-tissue-atlas/Heart/Demux/m84248_260804_214005_s1.hifi_reads.univ_v3_bc1001--univ_v3_bc1001.bam,FALSE,,,1718,676 Atlas
+676_Heart_cd45plus,676,,,/home/c0murr09/BMG/smithlab/STC1718_676_Tissue_Atlas_Heart/08-stc1718-sl179-676-tissue-atlas/Heart/Demux/m84248_260804_214005_s1.hifi_reads.univ_v3_bc1007--univ_v3_bc1007.bam,FALSE,,,1718,676 Atlas
+676_Spleen_Bulk,676,,,/home/c0murr09/BMG/smithlab/STC1718_676_Tissue_Atlas_Spleen/08-stc1718-sl179-676-tissue-atlas/Spleen/Demux/m84248_260804_235213_s2.hifi_reads.univ_v3_bc1003--univ_v3_bc1003.bam,FALSE,,,1718,676 Atlas
+676_Spleen_cd45plus,676,,,/home/c0murr09/BMG/smithlab/STC1718_676_Tissue_Atlas_Spleen/08-stc1718-sl179-676-tissue-atlas/Spleen/Demux/m84248_260804_235213_s2.hifi_reads.univ_v3_bc1009--univ_v3_bc1009.bam,FALSE,,,1718,676 Atlas
+undemuxed_Spleen,676,,,/home/c0murr09/BMG/smithlab/STC1718_676_Tissue_Atlas_Spleen/08-stc1718-sl179-676-tissue-atlas/Spleen/Raw_Data/1_C01/hifi_reads/m84248_260804_235213_s2.hifi_reads.bam,FALSE,,,1718,676 Atlas

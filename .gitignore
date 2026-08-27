@@ -1,6 +1,7 @@
 .ipynb_checkpoints/
 .nextflow/
 .nextflow.log*
+.nextflow.pid
 *.ipynb
 scripts/.ipynb_checkpoints
 .vscode*
@@ -8,12 +9,14 @@ bin/__pycache__/
 
 output_test/
 output*/
+results/
 results*/
 *out*/
 SL*/
 dev*/
 refs/
 work/
+tmp/
 old/
 test_results/
 future/

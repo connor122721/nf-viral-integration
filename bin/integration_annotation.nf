@@ -11,7 +11,7 @@ process INTEGRATION_ANNOTATE {
     container params.container_R
 
     input:
-        tuple val(sample_id), path(viral_fasta), path(unmasked_fa), path(input_sam)
+        tuple val(sample_id), path(viral_fasta), path(unmasked_fa), path(host_flanks), path(input_sam)
         path clone_calling_script
         path annotate_script
         path blast_script
@@ -20,14 +20,11 @@ process INTEGRATION_ANNOTATE {
 	    path repeats
 
     output:
-        tuple val(sample_id), path("*combined.csv"), emit: csv
         tuple val(sample_id), path("*annotated.csv"), emit: csv_ann
-        path("*viral.txt"), emit: txt
         path("*mapping_comparison.txt") 
-        path("pbmarkdup_logs/")
-        path("*png")
-        path("CCS_ReadIDs*")
+        path("logs_intermediates/")
         path("blast_output/")
+        path("fastas/")
 
     script:
         def sample_id_i = sample_id.replaceAll(/.gz$/, '').replaceAll(/.fastq$/, '')
@@ -75,11 +72,17 @@ process INTEGRATION_ANNOTATE {
             ${repeats}/*bed.gz \\
             ${sample_id_i}.annotated.csv
 
-        # Move over intermediate log files!
+        # Move over intermediates/log files and PNGs to respective folders
         cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*_mapping_comparison.txt .
-        mkdir -p pbmarkdup_logs/
-        cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*.pbmarkdup.log ./pbmarkdup_logs/
+        mkdir -p logs_intermediates/
+        cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*.pbmarkdup.log ./logs_intermediates/
+        mv CCS_ReadIDs* logs_intermediates/
+        mv *png logs_intermediates/
+        mv *combined.csv logs_intermediates/
+        mv *viral.txt logs_intermediates/
         mkdir -p blast_output/
+        mkdir -p fastas/
+        cp ${projectDir}/${params.outdir}/01_reference_selection/${sample_id_i}/*.final.*.fa fastas/
 
         # Conditionally copy output files
         if ls *_matches.fa 1> /dev/null 2>&1; then

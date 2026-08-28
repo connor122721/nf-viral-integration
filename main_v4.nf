@@ -108,10 +108,8 @@ def helpMessage() {
         Set 'barcode' to '*' on a demux=true row to take EVERY barcode lima
         finds in that pool; samples are then named <pool>.<barcode>.
 
-    Post-processing (clonal IDs, repeats, circos, HTML reports):
+    Post-processing:
         --skip_repeatmasker     Skip RepeatMasker download + overlap [default: false]
-        --report_genome         Used by circos + repeats: hg38 or t2t [default: hg38]
-        --html_mode             single | multi | both [default: both]
 
     Output:
         --outdir                Output directory [default: ./output]
@@ -300,12 +298,15 @@ process MULTI_REFERENCE_MAPPING {
         path(host_genome)
 
     output:
-        tuple val(sample_id), path(viral_genome), path("*sorted.sam"), path("*primary.sam"), path("*stats.txt"), path("*sorted.sam.fa"), emit: results_selectBest
+        tuple val(sample_id), path(viral_genome), path("*sorted.sam"), path("*primary.sam"), path("*stats.txt"),
+             path("*sorted.sam.fa"), path("*viralreads.fa"), path("*hostflanks.fa"), emit: results_selectBest
         tuple val(sample_id), path("*.pbmarkdup.log")
         tuple val(sample_id), path("*.readnames.txt")
         tuple val(sample_id), path("*.sorted.bam"), emit: sorted_bam
-        path("*sorted.sam.fa"), emit: unmask_fasta
+        path("*sorted.sam.fa"), emit: mask_fasta
+        path("*viralreads.fa"), emit: unmask_fasta
         path("*viralhits*.fastq.gz")
+        path("*viralhits.sam")
 
     script:
         def ref_name = viral_genome.baseName
@@ -317,14 +318,30 @@ process MULTI_REFERENCE_MAPPING {
         cat ${viral_genome} ${host_genome} > ${projectDir}/tmp/${ref_name}_hybridhost.fa
     fi
 
-    # Pass 1: select reads that hit virus
-    minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
-        ${viral_genome} ${reads} | \\
-        samtools fastq -@ ${params.threads} -F 0x904 - | \\
-        gzip > ${sample_id_i}_viralhits.fastq.gz
+    # Pass 1: select reads that hit the virus genome
+    minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 --sam-hit-only ${viral_genome} ${reads} > \\
+        ${sample_id_i}_vs_${ref_name}_viralhits.sam
+    
+    samtools fastq -@ ${params.threads} -F 0x904 ${sample_id_i}_vs_${ref_name}_viralhits.sam | gzip > \\
+        ${sample_id_i}_viralhits.fastq.gz
 
-    grep "@" ${sample_id_i}_viralhits.fastq.gz | sed 's/@//g' | cut -f1 -d" " > \\
+    # Get viral reads from alignment
+    zcat ${sample_id_i}_viralhits.fastq.gz | grep "@" | sed 's/@//g' | cut -f1 -d" " > \\
         ${sample_id_i}_vs_${ref_name}.viralhits.readnames.txt
+
+    # Mask viral reads
+    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}_viralhits.sam > \\
+        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa
+
+    # Extract non-viral flanks - this is host and consolidates any reads with N gaps
+    python ${projectDir}/bin/get_flanks.py ${sample_id_i}_vs_${ref_name}.sorted.sam.fa > \\
+        ${sample_id_i}_vs_${ref_name}.hostflanks.fa
+
+    # Extract viral reads only
+    python ${projectDir}/bin/unmask.py \\
+        ${sample_id_i}_vs_${ref_name}_viralhits.sam \\
+        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa > \\
+        ${sample_id_i}_vs_${ref_name}.viralreads.fa
 
     # Pass 2: map selected reads to the combined reference
     minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
@@ -344,7 +361,7 @@ process MULTI_REFERENCE_MAPPING {
     pbmarkdup ${sample_id_i}_vs_${ref_name}.fastq \\
         ${sample_id_i}_vs_${ref_name}.markdup.fastq \\
         --dup-file ${sample_id_i}_vs_${ref_name}.dups.fastq \\
-        --log-file ${sample_id_i}_vs_${ref_name}.pbmarkdup.log
+        --log-level INFO > ${sample_id_i}_vs_${ref_name}.pbmarkdup.log
 
     grep "@" ${sample_id_i}_vs_${ref_name}.dups.fastq | sed 's/@//g' | cut -f1 -d" " > \\
         ${sample_id_i}_vs_${ref_name}.dups.readnames.txt
@@ -362,9 +379,6 @@ process MULTI_REFERENCE_MAPPING {
     samtools view -h -F 0x900 ${sample_id_i}_vs_${ref_name}.sorted.bam \\
         -o ${sample_id_i}_vs_${ref_name}.primary.sam
 
-    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}.primary.sam > \\
-        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa
-
      mv ${sample_id_i}_viralhits.fastq.gz ${sample_id_i}_${ref_name}_viralhits.fastq.gz
     """
 }
@@ -376,7 +390,8 @@ process SELECT_BEST_REFERENCE {
     container params.container
 
     input:
-        tuple val(sample_id), path(viral_genomes), path(sam_files_supp), path(sam_files_nonsupp), path(stats_files), path(sort_fa)
+        tuple val(sample_id), path(viral_genomes), path(sam_files_supp), 
+            path(sam_files_nonsupp), path(stats_files), path(sort_fa), path(unmask_fa), path(host_flanks_fa)
 
     output:
         tuple val(sample_id), path("*best_reference.txt"), emit: best_ref_name
@@ -385,6 +400,8 @@ process SELECT_BEST_REFERENCE {
         path "*mapping_comparison.txt", emit: comparison
         path "*detailed_metrics.txt", emit: metrics
         tuple val(sample_id), path("*final.masked.fa"), emit: mask_fa
+        tuple val(sample_id), path("*final.unmasked.fa"), emit: unmask_fa
+        tuple val(sample_id), path("*final.hostflanks.fa"), emit: host_flanks_fa
 
     script:
         def sam_list = sam_files_supp.collect{ it }.join(' ')
@@ -402,24 +419,20 @@ process SELECT_BEST_REFERENCE {
         --output-detailed ${sample_id_i}_detailed_metrics.txt
 
     BEST_REF=\$(head -n1 ${sample_id_i}_best_reference.txt )
+    BEST_REF_vir=\$(head -n1 ${sample_id_i}_best_reference.txt | sed 's/.sorted//g')
     cp ${sample_id_i}_vs_\${BEST_REF}.sam ${sample_id_i}_vs_\${BEST_REF}_best_reference.sam
     cp ${sample_id_i}_vs_\${BEST_REF}.sam.fa ${sample_id_i}.final.masked.fa
+    cp ${sample_id_i}_vs_\${BEST_REF_vir}.viralreads.fa ${sample_id_i}.final.unmasked.fa
+    cp ${sample_id_i}_vs_\${BEST_REF_vir}.hostflanks.fa ${sample_id_i}.final.hostflanks.fa
     """
 }
 
-// Rename a demuxed FASTQ to <sample_id>.fastq.gz so QC + downstream
-// filenames carry the sample name rather than the barcode token.
-// lima mirrors the input extension, so a plain .fastq parent yields plain
-// .fastq children — those get compressed here so everything downstream of
-// STEP 0 sees a uniform .fastq.gz.
+// Rename a demuxed FASTQ to <sample_id>.fastq.gz for QC + downstream
 process RENAME_DEMUXED_FASTQ {
     tag "${meta.id}"
     container params.container
 
     input:
-        // stageAs keeps the input out of the task root so it can never collide
-        // with the declared output when a pass-through file is already called
-        // <sample>.fastq.gz
         tuple val(meta), path(fastq, stageAs: 'input/*')
 
     output:
@@ -641,15 +654,15 @@ workflow {
 
     grouped_results = MULTI_REFERENCE_MAPPING.out.results_selectBest
         .groupTuple(by: 0, size: n_viral_refs, remainder: true)
-        .map { sample_id, viral_genomes, sams, primary_sams, stats, fasta ->
-            tuple(sample_id, viral_genomes, sams, primary_sams,stats, fasta) }
+        .map { sample_id, viral_genomes, sams, primary_sams, stats, fasta, unmask_fa, host_flank ->
+            tuple(sample_id, viral_genomes, sams, primary_sams,stats, fasta, unmask_fa, host_flank) }
 
     //QUALIMAP(MULTI_REFERENCE_MAPPING.out.sorted_bam)
     SELECT_BEST_REFERENCE(grouped_results)
 
     // every sample that entered the step
     all_ids = grouped_results.map { tuple(it[0], 'seen') }
-    ok_ids  = SELECT_BEST_REFERENCE.out.best_ref_name.map { tuple(it[0], 'ok') }
+    ok_ids = SELECT_BEST_REFERENCE.out.best_ref_name.map { tuple(it[0], 'ok') }
 
     failed_ids = all_ids
         .join(ok_ids, remainder: true)
@@ -660,13 +673,9 @@ workflow {
         .collectFile(name: 'failed_best_reference_samples.txt', newLine: true, sort: true,
                     storeDir: "${params.outdir}")
 
-    // Get unmasked fasta
-    unmask_input = SELECT_BEST_REFERENCE.out.best_sam
-        .join(SELECT_BEST_REFERENCE.out.mask_fa)
-    
-    UNMASK_SEQUENCES(unmask_input, unmask_script_ch.first())
     annotate_input = SELECT_BEST_REFERENCE.out.best_ref_fa
-        .join(UNMASK_SEQUENCES.out.fasta)
+        .join(SELECT_BEST_REFERENCE.out.unmask_fa)
+        .join(SELECT_BEST_REFERENCE.out.host_flanks_fa)
         .join(SELECT_BEST_REFERENCE.out.best_sam)
 
     // Integrate the annotations

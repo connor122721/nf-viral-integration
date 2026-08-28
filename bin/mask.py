@@ -57,4 +57,6 @@ def process_read(read, last):
 #-----------------------------------------------------------------------------------------------------------------------------
 
 for read in sam:
+    if read.is_secondary or read.is_supplementary:
+            continue
     process_read(read, last=False)

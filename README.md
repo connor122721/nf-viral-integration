@@ -1,25 +1,43 @@
-# nf-viral-integration_t2t
+# nf-viral-integration (SMRTcap: 2026)
 
-A Nextflow pipeline for detecting HIV viral integration sites in PacBio HiFi data
+- This is a Nextflow pipeline for detecting HIV viral integration sites in PacBio HiFi data
 generated on Revio sequencers. Designed for longitudinal patient studies where
-the same insertion needs to be tracked across multiple time-course samples.
+the same insertion can be tracked across multiple time-course samples, or standalone identification of inserts.
 
-The pipeline takes per-sample, demultiplexed Revio output, aligns reads to a
+- This pipeline takes per-sample, demultiplexed Revio output, aligns reads to a
 hybrid host + HIV reference, identifies chimeric reads spanning the
 host/virus junction, calls integration breakpoints, annotates them against
-gene models and RepeatMasker tracks for both T2T-CHM13v2.0 and GRCh38, and
-produces sample-level and project-level HTML reports including a circos plot
-and a clonal-persistence matrix.
+gene models and RepeatMasker tracks for T2T-CHM13v2.0.
 
 ## Quick start
 
 ```bash
+# Load in singularity (or apptainer)
+module load singularity 
+
+# Run pipeline
 nextflow run main.nf \
     --samplesheet  samples.csv \
+    --host_genome  T2T_refgenome.fasta.gz \
+    --annotation   T2T_refgenome.gtf.gz \
     --outdir       results/ \
-    --report_genome t2t \
     -profile       singularity,slurm
 ```
+
+## Required Input
+```
+--samples               Metadata sheet csv that organizes input (see below).
+   Sample input alternatives:
+      --patient_dir           Directory containing patient BAM/FASTQ files.
+      --patient_bam           Single patient BAM file.
+      --patient_fastq         Single patient FASTQ file (already demultiplexed).
+      --multiplexed_fastq     Multiplexed FASTQ(s) to demultiplex with lima.
+
+--host_genome           Path to host genome FASTA.
+--viral_genomes         Glob pattern for viral reference panel (e.g., "hiv_refs/*.fa").
+```
+
+## Samplesheet (metadata) used for input
 
 `samples.csv` columns:
 
@@ -55,66 +73,108 @@ fourth row is already demultiplexed and skips lima.
 To force the entire pipeline to assume pre-demultiplexed inputs (ignoring
 `demux` columns altogether), pass `--skip_demux` on the command line.
 
-## Pipeline stages
-
-1. **Optional demultiplexing** (`modules/demux.nf`, `modules/nf-core/lima/`) — runs lima once per multiplexed parent BAM
-2. **QC** (`bin/qc_mods.nf`) — read length, quality, contamination summaries
-3. **Read selection** (`bin/pick_reads.py`) — pulls candidate chimeric reads
-4. **Reference selection** (`bin/select_best_reference.py`) — picks the best
-   HIV subtype reference per sample
-5. **Alignment & integration calling** (`bin/genomic_processes.nf`,
-   `bin/integration_annotation.nf`)
-6. **Annotation** (`bin/1.Annotate_Flank_Bam.R`,
-   `bin/2.Blast_Viral_Genes.R`, `bin/BMS.insertion.v3.3.ECR_OG.R`)
-7. **Clonal-ID assignment** (`bin/assign_clonal_ids.R`)
-8. **RepeatMasker overlap** (`modules/repeatmasker.nf`,
-   `bin/merge_repeatmasker_annotation.R`)
-9. **Circos rendering** (`bin/make_circos.R`)
-10. **HTML reports** (`bin/3.Create_Sample_HTML.R`,
-    `bin/4.Create_Project_HTML.R`) — refactored for low file size + multi-page
-
-## Expected outputs
-
-After a successful run with `--outdir results/`, the directory tree looks like:
+## Reference genome download (T2T)
 
 ```
-results/
-├── <sample_id>/
-│   ├── alignment/                      # BAM + index from genomic_processes
-│   ├── integrations/
-│   │   └── <sample_id>.integrations.tsv      ← raw per-sample calls
-│   ├── repeats/
-│   │   ├── <sample_id>.t2t.integrations.repeatmasker.tsv
-│   │   └── <sample_id>.hg38.integrations.repeatmasker.tsv
-│   ├── circos/
-│   │   └── <sample_id>.circos.png
-│   └── report/
-│       ├── <sample_id>.report.html           ← slim single-page
-│       └── <sample_id>_report/               ← multi-page version
-│           ├── index.html
-│           ├── circos.html
-│           ├── all.html
-│           └── chrom_<chr>.html
-├── clonal_tracking/
-│   ├── integrations_with_clonal_id.tsv       ← long format, clone-annotated
-│   ├── clonal_persistence_wide.tsv           ← clone × timepoint matrix
-│   └── clonal_summary.tsv                    ← per-clone summary
-└── project/
-    ├── circos/
-    │   └── project.circos.png
-    └── report/
-        ├── project.report.html               ← slim single-page
-        └── project_report/                   ← multi-page version
-            ├── index.html
-            ├── circos.html
-            ├── samples.html
-            ├── persistence.html
-            └── summary.html
+# Reference genome
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/914/755/GCF_009914755.1_T2T-CHM13v2.0/GCF_009914755.1_T2T-CHM13v2.0_genomic.fna.gz
+
+# Gene annotation file 
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/914/755/GCF_009914755.1_T2T-CHM13v2.0/GCF_009914755.1_T2T-CHM13v2.0_genomic.gtf.gz
+```
+
+## Pipeline stages
+
+1. **Optional demultiplexing** (`modules/demux.nf`, `modules/nf-core/lima/`) — runs `lima` once per multiplexed parent BAM
+2. **QC** (`bin/qc_mods.nf`) — read length, quality, contamination summaries\
+3. **Reference selection** (`bin/select_best_reference.py`) — picks the best
+   HIV subtype reference per sample
+4. **Alignment & integration calling** (`bin/genomic_processes.nf`,
+   `bin/integration_annotation.nf`)
+5. **Annotation** (`bin/1.Annotate_Flank_Bam.R`,
+   `bin/2.Blast_Viral_Genes.R`, `bin/BMS.insertion.v3.3.ECR_OG.R`)
+
+## Expected Output Layout
+This is an example of a simplified output from one sample (`sample1321R`) when mapped to all 9 of the included viral reference genomes (in `${projectDir}/data/hiv_genome_panel`). Outputs were simplified to showcase the general structure. 
+
+- `01_reference_selection`: contains all mapping results to the viral and viral+host genomes across the viral panel.
+- `02_phylogenetics`: contains the viral alignments and hypermut3 (hypermutation G --> A statistics) output.
+- `final_results`: contains all the annotated viral insertions and BLAST proviral results.
+- `converted_fastq` & `lima`: contains all processed fastqs prior to mapping and demultiplexing output.
+- `genome_files`: contains the processed GTF used for annotation.
+- `pipeline_info`: contains nextflow logs and general metrics of the run so you can track CPU time & memory usage.
+
+After a successful run with `--outdir output/`, the directory tree looks like:
+
+```
+output/
+├── 01_reference_selection
+│   └── sample1321R
+│       ├── sample1321R_best_reference.fa
+│       ├── sample1321R_best_reference.txt
+│       ├── sample1321R_detailed_metrics.txt
+│       ├── sample1321R.final.hostflanks.fa
+│       ├── sample1321R.final.masked.fa
+│       ├── sample1321R.final.unmasked.fa
+│       ├── sample1321R_mapping_comparison.txt
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.allmapped.readnames.txt
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.dups.readnames.txt
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.hostflanks.fa
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.pbmarkdup.log
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.primary.sam
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.sorted.bam
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.sorted_best_reference.sam
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.sorted.sam
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.sorted.sam.fa
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.stats.txt
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.viralhits.readnames.txt
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455_viralhits.sam
+│       ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.viralreads.fa
+│       └── Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.fasta
+├── 02_phylogenetics
+│   └── sample1321R
+│       ├── sample1321R.final.unmasked.fa.aln
+│       ├── sample1321R.final.unmasked.fa.sam.log
+│       ├── sample1321R.hypermutargs.csv
+│       ├── sample1321R.hypermutpositions.csv
+│       ├── sample1321R.hypermutsummary.csv
+│       └── viralmsa.log
+├── converted_fastq
+│   └── sample1321R.fastq.gz
+├── failed_best_reference_samples.txt
+├── final_results
+│   └── sample1321R
+│       ├── blast_output
+│       │   └── sample1321R.viral.txt_LTR_matches.fa
+│       ├── fastas
+│       │   ├── sample1321R.final.hostflanks.fa
+│       │   ├── sample1321R.final.masked.fa
+│       │   └── sample1321R.final.unmasked.fa
+│       ├── sample1321R.annotated.csv
+│       ├── sample1321R_mapping_comparison.txt
+│       └── logs_intermediates
+│           ├── CCS_ReadIDs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.txt
+│           ├── sample1321R.combined.csv
+│           ├── sample1321R.viral.txt
+│           ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.dups.readnames.txt
+│           ├── sample1321R_vs_Ref.B.FR.83.HXB2_LAI_IIIB_BRU.K03455.pbmarkdup.log
+│           ├── LTR3_Histogram.png
+│           ├── LTR5_Histogram.png
+│           ├── LTRBOTH_Histogram.png
+│           └── LTRUsage.png
+├── genome_files
+│   └── host.gtf
+├── lima
+│   └── sample1321R
+│       └── sample1321R.bam
+└── pipeline_info
+    ├── report.html
+    └── timeline.html
 ```
 
 ## Output column dictionaries
 
-### `<sample_id>.integrations.tsv` (raw per-sample call table)
+### `<sample_id>.annotation.csv` (per-sample integrations/episome identification tables)
 
 | column              | description                                                            |
 |---------------------|------------------------------------------------------------------------|
@@ -124,77 +184,25 @@ results/
 | strand              | `+`/`-`/`*`. Strand of the host read at the junction                   |
 | viral_orientation   | `+`/`-` orientation of the integrated provirus                         |
 | viral_gene          | Annotated viral gene at the integration junction (if BLASTed)          |
-| read_support        | Number of HiFi reads supporting the breakpoint                         |
-| flank_qual          | Mean Phred Q of the host flank used for the call                       |
-| junction_seq        | Soft-clip sequence at the host/virus junction                          |
-| integration_class   | Classification (e.g. `gene_body`, `intergenic`, `repeat`)              |
 
-### `integrations_with_clonal_id.tsv` (after `assign_clonal_ids.R`)
+## Reproducing repeatmasker step without internet (HPC)
 
-Inherits every column above and adds:
-
-| column            | description                                                              |
-|-------------------|--------------------------------------------------------------------------|
-| clonal_id         | Persistent ID of the form `chrN_<canonical_pos>` (or `..._<strand>`)     |
-| canonical_pos     | Median position of all sites in the clone (used for `clonal_id`)         |
-| patient_id        | From sample sheet                                                        |
-| timepoint         | From sample sheet                                                        |
-
-`<genome>` is `t2t` or `hg38`. Both pairs of columns coexist on every row so
-T2T-only and HG38-only repeats can be compared at a glance.
-
-### `clonal_persistence_wide.tsv`
-
-Wide-format matrix, one row per clone, one column per timepoint. Cell value is
-the read support sum across samples sharing that timepoint (or count when
-`read_support` is absent).
-
-| column            | description                                            |
-|-------------------|--------------------------------------------------------|
-| clonal_id         | Persistent clone identifier                            |
-| chrom             | Host chromosome                                        |
-| canonical_pos     | Median breakpoint position                             |
-| `<timepoint_*>`   | Read support at that timepoint, `0` if not detected    |
-
-### `clonal_summary.tsv`
-
-| column            | description                                                              |
-|-------------------|--------------------------------------------------------------------------|
-| clonal_id         | Persistent clone identifier                                              |
-| chrom             | Host chromosome                                                          |
-| canonical_pos     | Median breakpoint                                                        |
-| n_samples         | Number of distinct samples in which the clone was detected               |
-| n_timepoints      | Number of distinct timepoints                                            |
-| first_timepoint   | Earliest sortable timepoint at which the clone was seen                  |
-| last_timepoint    | Latest                                                                   |
-| total_reads       | Sum of `read_support` across all detections                              |
-| patient_id        | Comma-separated list of patient IDs (usually one)                        |
-
-Sorted descending by `n_timepoints`, then `n_samples` — i.e. the most
-persistent clones first.
-
-## Parameters added in this refactor
-
-| parameter                  | default                            | meaning                                  |
-|----------------------------|------------------------------------|------------------------------------------|
-| `clonal_window_bp`         | `10`                               | Window for grouping integrations into clones |
-| `clonal_use_strand`        | `false`                            | Require same strand within a clone        |
-| `repeatmasker_cache_dir`   | `${projectDir}/refs/repeatmasker`  | Where downloaded BED files live           |
-| `repeatmasker_url_t2t`     | UCSC `hs1` rmsk.bb                 | Override if UCSC moves the file           |
-| `repeatmasker_url_hg38`    | UCSC `hg38` rmsk.bb                | Override if UCSC moves the file           |
-| `skip_repeatmasker`        | `false`                            | Skip download + overlap entirely          |
-| `html_mode`                | `both`                             | `single` / `multi` / `both`               |
-| `report_genome`            | `hg38`                             | Used by circos: `hg38` or `t2t`           |
-| `cytoband_t2t`             | `null`                             | CHM13v2.0 cytoband file for T2T circos    |
-| `skip_demux`               | `false`                            | Treat all rows as already demultiplexed   |
-| `default_barcode_fasta`    | `null`                             | Fallback barcode FASTA for `demux=true` rows that omit `barcode_fasta` |
-| `lima_args`                | `"--hifi-preset SYMMETRIC --min-score 80"` | Pass-through args to lima         |
-
-## Reproducing without internet (HPC)
-
-If your nodes can't reach UCSC, pre-download the bigBed files once on the
+If your nodes can't reach the internet, pre-download the bigBed files once on the
 login node and drop them into `params.repeatmasker_cache_dir`. The download
-process will see the cached `*.bed.gz` file and skip the network call.
+process will see the cached `*.bed.gz` file and skip the process.
+
+```
+# Get repeatmasker output for T2T
+wget "https://hgdownload.soe.ucsc.edu/gbdb/hs1/t2tRepeatMasker/chm13v2.0_rmsk.align.bb"
+genome_label="t2t"
+
+# Convert bigbed to Bedfile!
+bigBedToBed chm13v2.0_rmsk.align.bb ${genome_label}.repeatmasker.bed
+
+# Sort + bgzip-friendly gzip 
+sort -k1,1 -k2,2n ${genome_label}.repeatmasker.bed | gzip -n > ${genome_label}.repeatmasker.bed.gz
+rm -f ${genome_label}.rmsk.bb ${genome_label}.repeatmasker.bed
+```
 
 ## Demultiplexing details
 
@@ -218,7 +226,13 @@ not set), the pipeline:
 Per-run lima outputs (summary, counts, report) are still published under
 `results/<demux_run_id>/lima/` for QC review.
 
-The lima container is pulled from biocontainers automatically by Singularity;
-no SIF rebuild required. If your cluster has no internet egress, mirror
-`quay.io/biocontainers/lima:2.9.0--h9ee0642_0` to your local registry and
-override the container path in `nextflow.config`.
+## Citation & Other Resources
+
+### This is the original paper describing the SMRTcap methodology with HIV:
+Sadri G, Nadakal ST, Lauer W, Kos J, Singh PK, et al. (2026) Development and validation of HIV SMRTcap for the characterization of HIV-1 reservoirs across tissues and subtypes. PLOS Pathogens 22(1): e1013171. (https://doi.org/10.1371/journal.ppat.1013171)
+
+### This is our pre-print that uses the SMRTcap methodology on lentiviral vectors (LLVs):
+Catherine W. Kaiser, Ghazal S. Mehs, Erin M. Elliott, Joanna E. Mroczkowska, Ankita Jain, Michael Ferguson, Alfred L. Garfall, Frederic D. Bushman, Joseph A. Fraietta, Eric C. Rouchka, Melissa L. Smith (2026). LVV SMRTcap reveals extensive proviral variation in lentiviral vector-transduced CAR T cells. bioRxiv. (https://doi.org/10.64898/2026.05.13.724601)
+
+### This is the original bioinformatics pipeline prior to adapation to chimeric read support & nextflow: 
+SMRTcap analysis pipeline (2025): (https://github.com/SmithLabLouisville/SMRTCap)

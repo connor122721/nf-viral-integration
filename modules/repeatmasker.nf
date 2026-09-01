@@ -33,7 +33,7 @@ process REPEATMASKER_DOWNLOAD {
     set -euo pipefail
 
     # 1. Fetch the bigBed
-    wget --quiet --tries=3 --timeout=120 -O ${genome_label}.rmsk.bb "${bb_url}"
+    wget --quiet --no-check-certificate -O ${genome_label}.rmsk.bb "${bb_url}" 
     
     # 2. Convert bb -> bed 
     bigBedToBed ${genome_label}.rmsk.bb ${genome_label}.repeatmasker.bed

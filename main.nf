@@ -47,29 +47,69 @@ def helpMessage() {
                                             (path to barcode FASTA)
                                             Required when demux == true.
 
-                                Example mixing demuxed + multiplexed inputs:
-                                  sample,patient_id,timepoint,bam,demux,barcode,barcode_fasta
-                                  PT01_T0,PT01,T0,runs/run1.bam,true,bc1001--bc1001,refs/bc.fa
-                                  PT01_T1,PT01,T1,runs/run1.bam,true,bc1002--bc1002,refs/bc.fa
-                                  PT02_T0,PT02,T0,runs/already.demuxed.bam,false,,
-                                  STC1644,STC,T0,/data/STC1644.fastq.gz,false,,
+                                Each row needs EITHER 'fastq' OR 'bam' populated.
+                                Leave the unused cell empty. FASTQ rows always
+                                bypass lima; BAM rows follow the demux settings.
+
+                                Example mixing demuxed + multiplexed + FASTQ inputs:
+                                  sample,patient_id,timepoint,fastq,bam,demux,barcode,barcode_fasta
+                                  PT01_T0,PT01,T0,,runs/run1.bam,true,bc1001--bc1001,refs/bc.fa
+                                  PT01_T1,PT01,T1,,runs/run1.bam,true,bc1002--bc1002,refs/bc.fa
+                                  PT02_T0,PT02,T0,,runs/already.demuxed.bam,false,,
+                                  STC1644,STC,T0,/data/STC1644.fastq.gz,,false,,
+
+                                FASTQ-only sheets are fine — the 'bam' column can
+                                be blank or absent entirely:
+                                  sample,patient_id,timepoint,fastq
+                                  STC1644,STC,T0,/data/STC1644.fastq.gz
+                                  STC1649,STC,T1,/data/STC1649.fastq.gz
+
+                                Multiplexed FASTQ demultiplexed by lima — set
+                                demux=true and give the barcode token. Rows that
+                                share a fastq + barcode_fasta run lima once:
+                                  sample,patient_id,timepoint,fastq,demux,barcode,barcode_fasta
+                                  PT03_T0,PT03,T0,runs/pool.fastq.gz,true,bc1003--bc1003,refs/bc.fa
+                                  PT03_T1,PT03,T1,runs/pool.fastq.gz,true,bc1004--bc1004,refs/bc.fa
+
+                                Take every barcode from a pool without naming
+                                them up front:
+                                  sample,fastq,demux,barcode,barcode_fasta
+                                  pool1,runs/pool.fastq.gz,true,*,refs/bc.fa
 
         --patient_dir           Directory containing patient BAM/FASTQ files
         --patient_bam           Single patient BAM file
-        --patient_fastq         Single patient FASTQ file
+        --patient_fastq         Single patient FASTQ file (already demultiplexed)
+        --multiplexed_fastq     Multiplexed FASTQ(s) to demultiplex with lima.
+                                Glob allowed. Requires --default_barcode_fasta.
+                                Every barcode lima finds becomes a sample, named
+                                <run>.<barcode> (e.g. run1.bc1001--bc1001).
 
     Demultiplexing (lima — modules/nf-core/lima/main.nf):
         --skip_demux            Bypass lima entirely; treat every row as already
                                 demultiplexed regardless of its 'demux' value.
         --lima_args             String passed verbatim to lima.
                                 Default: "--hifi-preset SYMMETRIC --min-score 80"
+                                Note: --split-named is appended automatically
+                                unless you supply your own --split* flag.
         --default_barcode_fasta Fallback barcode FASTA if a samplesheet row sets
-                                demux=true but omits 'barcode_fasta'.
+                                demux=true but omits 'barcode_fasta'. Also the
+                                barcode FASTA used by --multiplexed_fastq.
 
-    Post-processing (clonal IDs, repeats, circos, HTML reports):
+        FASTQ vs BAM demultiplexing: both are handled by the same lima module
+        (modules/demux.nf). lima mirrors the input extension, so a BAM pool
+        yields <prefix>.<barcode>.bam and a FASTQ pool yields
+        <prefix>.<barcode>.fastq[.gz]. lima cannot emit BAM from FASTQ input,
+        so demuxed FASTQs never enter BAM_TO_FASTQ.
+
+        IMPORTANT: lima only writes one file per barcode when --split-named is
+        in effect. That flag comes from the LIMA module's ext.args in
+        nextflow.config, not from this pipeline, so make sure it is set.
+
+        Set 'barcode' to '*' on a demux=true row to take EVERY barcode lima
+        finds in that pool; samples are then named <pool>.<barcode>.
+
+    Post-processing:
         --skip_repeatmasker     Skip RepeatMasker download + overlap [default: false]
-        --report_genome         Used by circos + repeats: hg38 or t2t [default: hg38]
-        --html_mode             single | multi | both [default: both]
 
     Output:
         --outdir                Output directory [default: ./output]
@@ -102,6 +142,72 @@ if (params.help) {
 // INPUT VALIDATION
 // ========================================================================================
 
+// True only if the samplesheet row has that column AND it is non-null / non-blank.
+// Handles missing columns, empty cells ("PT02,,,"), and whitespace-only cells.
+def hasVal(row, col) {
+    row instanceof Map && row.containsKey(col) && row[col] != null && row[col].toString().trim() != ''
+}
+
+// Clean up samplesheet header keys and values before anything downstream sees them.
+//   - strips a UTF-8 BOM from the first column name  ("\uFEFFsample" -> "sample")
+//   - strips stray whitespace / carriage returns from keys and values
+//   - lowercases keys so 'Sample' / 'BAM' / 'FastQ' all work
+//   - accepts common aliases for the sample-name column
+def normaliseRow(row) {
+    def clean = [:]
+    row.each { k, v ->
+        def key = k?.toString()?.replaceAll(/\uFEFF/, '')?.replaceAll(/\r/, '')?.trim()?.toLowerCase()
+        if (key) clean[key] = (v instanceof CharSequence) ? v.toString().replaceAll(/\r/, '').trim() : v
+    }
+
+    if (!clean.sample) {
+        def alias = ['sample_id','sampleid','sample_name','samplename','id','name']
+                        .find { clean[it] != null && clean[it].toString().trim() != '' }
+        if (alias) clean.sample = clean[alias]
+    }
+
+    if (!clean.sample) {
+        throw new IllegalArgumentException(
+            "Samplesheet row has no usable sample name.\n" +
+            "       Columns found: ${clean.keySet().join(', ')}\n" +
+            "       Expected a 'sample' column (aliases: sample_id, sample_name, id, name).\n" +
+            "       If the header looks correct, the file likely has a UTF-8 BOM or CRLF\n" +
+            "       line endings — check with:  head -1 samples.csv | xxd | head -2")
+    }
+
+    // modules/demux.nf reads row.sample_id; the rest of main.nf reads
+    // row.sample. Keep both populated and identical so neither goes null.
+    clean.sample_id = clean.sample
+    clean
+}
+
+// Loose boolean parser for samplesheet cells ("true"/"T"/"1"/"yes"/"Y").
+def isTrue(v) {
+    v != null && v.toString().trim().toLowerCase() in ['true','t','1','yes','y']
+}
+
+// Fill in the fallback barcode FASTA and check that demux rows are complete.
+// Applied to every row; rows that do not request demultiplexing pass untouched.
+def resolveDemuxRow(row) {
+    if (!isTrue(row.demux)) return row
+
+    if (!hasVal(row, 'barcode_fasta') && params.default_barcode_fasta) {
+        row.barcode_fasta = params.default_barcode_fasta
+    }
+    if (!hasVal(row, 'barcode_fasta')) {
+        throw new IllegalArgumentException(
+            "Samplesheet row '${row.sample}' sets demux=true but has no 'barcode_fasta'.\n" +
+            "       Add the column or pass --default_barcode_fasta.")
+    }
+    if (!hasVal(row, 'barcode')) {
+        throw new IllegalArgumentException(
+            "Samplesheet row '${row.sample}' sets demux=true but has no 'barcode'.\n" +
+            "       Expected a lima --split-named token (e.g. 'bc1001--bc1001'),\n" +
+            "       or '*' to take every barcode lima finds in that pool.")
+    }
+    row
+}
+
 def validateInputs() {
     def errors = []
 
@@ -127,10 +233,6 @@ def validateInputs() {
         errors << "ERROR: --report_genome must be 'hg38' or 't2t' (got '${params.report_genome}')."
     }
 
-    if (params.html_mode && !(params.html_mode.toString().toLowerCase() in ['single','multi','both'])) {
-        errors << "ERROR: --html_mode must be 'single', 'multi', or 'both' (got '${params.html_mode}')."
-    }
-
     if (errors) {
         log.error "\n" + errors.join("\n")
         exit 1
@@ -150,7 +252,8 @@ log.info "======================================================================
 log.info "Host genome       : ${params.host_genome}"
 log.info "Viral genomes     : ${params.viral_genomes ?: params.viral_genome}"
 log.info "Host annotation   : ${params.annotation}"
-log.info "Demultiplex (lima): ${params.skip_demux ? 'SKIPPED' : 'enabled (per-row demux flag)'}"
+log.info "Demultiplex (lima): ${params.skip_demux ? 'SKIPPED' : 'enabled (per-row demux flag; BAM + FASTQ)'}"
+log.info "Barcode FASTA     : ${params.default_barcode_fasta ?: 'per-row only'}"
 log.info "Report genome     : ${params.report_genome}"
 log.info "Output directory  : ${params.outdir}"
 log.info "========================================================================================"
@@ -191,57 +294,88 @@ process MULTI_REFERENCE_MAPPING {
         path(host_genome)
 
     output:
-        tuple val(sample_id), path(viral_genome), path("*.sam"), path("*stats.txt"), path("*sorted.sam.fa"), emit: results
+        tuple val(sample_id), path(viral_genome), path("*sorted.sam"), path("*primary.sam"), path("*stats.txt"),
+             path("*sorted.sam.fa"), path("*viralreads.fa"), path("*hostflanks.fa"), emit: results_selectBest
         tuple val(sample_id), path("*.pbmarkdup.log")
         tuple val(sample_id), path("*.readnames.txt")
         tuple val(sample_id), path("*.sorted.bam"), emit: sorted_bam
-        path("*sorted.sam.fa"), emit: unmask_fasta
+        path("*sorted.sam.fa"), emit: mask_fasta
+        path("*viralreads.fa"), emit: unmask_fasta
+        path("*viralhits*.fastq.gz")
+        path("*viralhits.sam")
 
     script:
         def ref_name = viral_genome.baseName
-        def sample_id_i = sample_id.replaceAll(/.bam$/, '')
+        def sample_id_i = sample_id.toString().replaceAll(/\.bam$/, '')
     """
-    # Conditionally combine host and viral genomes for hybrid assembly approach
+    # Build combined host+viral reference once
     mkdir -p ${projectDir}/tmp
-    if [ ! -f ${projectDir}/${ref_name}_hybridhost.fa ]; then
+    if [ ! -f ${projectDir}/tmp/${ref_name}_hybridhost.fa ]; then
         cat ${viral_genome} ${host_genome} > ${projectDir}/tmp/${ref_name}_hybridhost.fa
     fi
 
-    # Pass 1: map to viral only, emit the reads that hit virus as FASTQ
-    minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
-        ${viral_genome} ${reads} | \\
-        samtools fastq -@ ${params.threads} -F 0x4 - | \\
-        gzip > ${sample_id_i}_viralhits.fastq.gz
+    # Pass 1: select reads that hit the virus genome
+    minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 --sam-hit-only ${viral_genome} ${reads} > \\
+        ${sample_id_i}_vs_${ref_name}_viralhits.sam
+    
+    samtools fastq -@ ${params.threads} -F 0x904 ${sample_id_i}_vs_${ref_name}_viralhits.sam | gzip > \\
+        ${sample_id_i}_viralhits.fastq.gz
 
-    # Pass 2: map ONLY those reads to the combined reference
+    # Get viral reads from alignment
+    zcat ${sample_id_i}_viralhits.fastq.gz | grep "@" | sed 's/@//g' | cut -f1 -d" " > \\
+        ${sample_id_i}_vs_${ref_name}.viralhits.readnames.txt
+
+    # Mask viral reads
+    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}_viralhits.sam > \\
+        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa
+
+    # Extract non-viral flanks - this is the host and consolidates any reads with any number of N gaps
+    python ${projectDir}/bin/get_flanks.py ${sample_id_i}_vs_${ref_name}.sorted.sam.fa > \\
+        ${sample_id_i}_vs_${ref_name}.hostflanks.fa
+
+    # Extract viral reads only - this goes to ViralMSA
+    python ${projectDir}/bin/unmask.py \\
+        ${sample_id_i}_vs_${ref_name}_viralhits.sam \\
+        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa > \\
+        ${sample_id_i}_vs_${ref_name}.viralreads.fa
+
+    # Pass 2: map selected reads to the combined reference
     minimap2 -t ${params.threads} -m 0 -Y -ax map-hifi --score-N=0 \\
         ${projectDir}/tmp/${ref_name}_hybridhost.fa ${sample_id_i}_viralhits.fastq.gz | \\
         samtools view -h -F 4 -b | \\
         samtools sort -@ ${params.threads} -o ${sample_id_i}_vs_${ref_name}.sorted.bam
 
+    # Index required by parseSAM's region query (samtools view bam HIV:1-1000000)
+    samtools index ${sample_id_i}_vs_${ref_name}.sorted.bam
     samtools view ${sample_id_i}_vs_${ref_name}.sorted.bam | cut -f1 | sort -u > \\
         ${sample_id_i}_vs_${ref_name}.allmapped.readnames.txt
 
+    # pbmarkdup input
     samtools fastq -@ ${params.threads} ${sample_id_i}_vs_${ref_name}.sorted.bam > \\
         ${sample_id_i}_vs_${ref_name}.fastq
 
     pbmarkdup ${sample_id_i}_vs_${ref_name}.fastq \\
         ${sample_id_i}_vs_${ref_name}.markdup.fastq \\
         --dup-file ${sample_id_i}_vs_${ref_name}.dups.fastq \\
-        --log-file ${sample_id_i}_vs_${ref_name}.pbmarkdup.log
+        --log-level INFO > ${sample_id_i}_vs_${ref_name}.pbmarkdup.log
 
     grep "@" ${sample_id_i}_vs_${ref_name}.dups.fastq | sed 's/@//g' | cut -f1 -d" " > \\
         ${sample_id_i}_vs_${ref_name}.dups.readnames.txt
 
+    # Full-flag SAM (supplementaries intact) for flagstat / inspection.
+    # --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt
     samtools view -h ${sample_id_i}_vs_${ref_name}.sorted.bam \\
-        --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt \\
         -o ${sample_id_i}_vs_${ref_name}.sorted.sam
 
     samtools flagstat ${sample_id_i}_vs_${ref_name}.sorted.sam > \\
         ${sample_id_i}_vs_${ref_name}.stats.txt
 
-    python ${projectDir}/bin/mask.py ${sample_id_i}_vs_${ref_name}.sorted.sam > \\
-        ${sample_id_i}_vs_${ref_name}.sorted.sam.fa
+    # Primary-only SAM for mask.py -> exactly one FASTA record per read.
+    # --qname-file ^${sample_id_i}_vs_${ref_name}.dups.readnames.txt
+    samtools view -h -F 0x900 ${sample_id_i}_vs_${ref_name}.sorted.bam \\
+        -o ${sample_id_i}_vs_${ref_name}.primary.sam
+
+     mv ${sample_id_i}_viralhits.fastq.gz ${sample_id_i}_${ref_name}_viralhits.fastq.gz
     """
 }
 
@@ -252,7 +386,8 @@ process SELECT_BEST_REFERENCE {
     container params.container
 
     input:
-        tuple val(sample_id), path(viral_genomes), path(sam_files), path(stats_files), path(sort_fa)
+        tuple val(sample_id), path(viral_genomes), path(sam_files_supp), 
+            path(sam_files_nonsupp), path(stats_files), path(sort_fa), path(unmask_fa), path(host_flanks_fa)
 
     output:
         tuple val(sample_id), path("*best_reference.txt"), emit: best_ref_name
@@ -261,12 +396,14 @@ process SELECT_BEST_REFERENCE {
         path "*mapping_comparison.txt", emit: comparison
         path "*detailed_metrics.txt", emit: metrics
         tuple val(sample_id), path("*final.masked.fa"), emit: mask_fa
+        tuple val(sample_id), path("*final.unmasked.fa"), emit: unmask_fa
+        tuple val(sample_id), path("*final.hostflanks.fa"), emit: host_flanks_fa
 
     script:
-        def sam_list = sam_files.collect{ it }.join(' ')
+        def sam_list = sam_files_supp.collect{ it }.join(' ')
         def stats_list = stats_files.collect{ it }.join(' ')
         def genome_list = viral_genomes.collect{ it }.join(' ')
-        def sample_id_i = sample_id.replaceAll(/.bam$/, '')
+        def sample_id_i = sample_id.toString().replaceAll(/\.bam$/, '')
     """
     python ${projectDir}/bin/select_best_reference.py \\
         --sam-files ${sam_list} \\
@@ -277,9 +414,87 @@ process SELECT_BEST_REFERENCE {
         --output-comparison ${sample_id_i}_mapping_comparison.txt \\
         --output-detailed ${sample_id_i}_detailed_metrics.txt
 
-    BEST_REF=\$(head -n1 ${sample_id_i}_best_reference.txt)
+    BEST_REF=\$(head -n1 ${sample_id_i}_best_reference.txt )
+    BEST_REF_vir=\$(head -n1 ${sample_id_i}_best_reference.txt | sed 's/.sorted//g')
     cp ${sample_id_i}_vs_\${BEST_REF}.sam ${sample_id_i}_vs_\${BEST_REF}_best_reference.sam
-    cp ${sample_id_i}_vs_\${BEST_REF}*.sam.fa ${sample_id_i}.final.masked.fa 
+    cp ${sample_id_i}_vs_\${BEST_REF}.sam.fa ${sample_id_i}.final.masked.fa
+    cp ${sample_id_i}_vs_\${BEST_REF_vir}.viralreads.fa ${sample_id_i}.final.unmasked.fa
+    cp ${sample_id_i}_vs_\${BEST_REF_vir}.hostflanks.fa ${sample_id_i}.final.hostflanks.fa
+    """
+}
+
+process VIRALMSA {
+    tag "${sample_id}"
+    publishDir "${params.outdir}/02_phylogenetics/${sample_id}", mode: 'copy'
+    container params.container
+
+    input:
+        tuple val(sample_id), path(best_ref_fa), path(mask_fa)
+        path(viralmsa)
+
+    output:
+        tuple val(sample_id), path("*.aln"), path("*.log"), emit: alignment
+
+    script:
+    """
+    #cat ${best_ref_fa} ${mask_fa} > ${sample_id}.combined.fa
+    python ${viralmsa} \\
+        -s ${mask_fa} \\
+        -r ${best_ref_fa} \\
+        -a minimap2 \\
+        --viralmsa_dir ./ \\
+        -t ${params.threads} \\
+        -o ${sample_id}_viralmsa
+
+    cp ${sample_id}_viralmsa/*.aln .
+    cp ${sample_id}_viralmsa/*.log .
+    """
+}
+
+process HYPERMUT3 {
+    tag "${sample_id}"
+    publishDir "${params.outdir}/02_phylogenetics/${sample_id}", mode: 'copy'
+    container params.container_tree
+
+    input:
+        tuple val(sample_id), path(aln), path(log)
+
+    output:
+        tuple val(sample_id), path("${sample_id}.hypermut*"), emit: hypermut_out
+
+    script:
+    """
+    python3 ${projectDir}/bin/hypermut.py \\
+        ${aln} \\
+        G \\
+        A \\
+        -d RD \\
+        --prefix ${sample_id}.hypermut
+    """
+}
+
+// Rename a demuxed FASTQ to <sample_id>.fastq.gz for QC + downstream
+process RENAME_DEMUXED_FASTQ {
+    tag "${meta.id}"
+    container params.container
+    publishDir "${params.outdir}/fastq/${meta.id}", mode: 'link'
+
+    input:
+        tuple val(meta), path(fastq, stageAs: 'input/*')
+
+    output:
+        tuple val(meta), path("${meta.id}.fastq.gz"), emit: fastq
+
+    script:
+    """
+    case "${fastq}" in
+        *.gz)
+            ln -sf "\$(readlink -f ${fastq})" ${meta.id}.fastq.gz
+            ;;
+        *)
+            pigz -p ${params.threads} -c ${fastq} > ${meta.id}.fastq.gz
+            ;;
+    esac
     """
 }
 
@@ -287,9 +502,10 @@ process SELECT_BEST_REFERENCE {
 process RENAME_DEMUXED_BAM {
     tag "${meta.id}"
     container params.container
+    publishDir "${params.outdir}/lima/${meta.id}", mode: 'link'
 
     input:
-        tuple val(meta), path(bam)
+        tuple val(meta), path(bam, stageAs: 'input/*')
 
     output:
         path "${meta.id}.bam", emit: bam
@@ -306,18 +522,14 @@ process RENAME_DEMUXED_BAM {
 
 // QC modules
 include { FASTQC } from './bin/qc_mods.nf'
-include { QUALIMAP } from './bin/qc_mods.nf'
 include { MULTIQC } from './bin/qc_mods.nf'
 
 // Reference + downstream genomic processes
 include { DEMUX } from './modules/demux'
-include { POST_PROCESS } from './modules/post_process'
 include { GFFCONVERT } from './bin/genomic_processes.nf'
+include { REPEATMASKER_DOWNLOAD } from './modules/repeatmasker.nf'
 include { UNMASK_SEQUENCES } from './bin/genomic_processes.nf'
 include { EXTRACT_FLANKS } from './bin/genomic_processes.nf'
-include { MAP_FLANKS_TO_HOST } from './bin/genomic_processes.nf'
-include { CONFIRM_HOST_ALIGNMENTS } from './bin/genomic_processes.nf'
-include { COMBINE_RESULTS } from './bin/genomic_processes.nf'
 include { INTEGRATION_ANNOTATE } from './bin/integration_annotation.nf'
 include { CREATE_HTML_REPORT } from './bin/integration_annotation.nf'
 
@@ -340,73 +552,107 @@ workflow {
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     annotate_script_ch = Channel.fromPath("${script_dir}/1.annotate_integrations_HIV.R", checkIfExists:true)
     blast_script_ch = Channel.fromPath("${script_dir}/findHIVSIVGeneRegionsV9.6", checkIfExists: true)
-    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM.pl", checkIfExists: true)
+    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM_v2.pl", checkIfExists: true)
     report_script_ch = Channel.fromPath("${script_dir}/3.Create_Sample_HTML.R", checkIfExists: true)
+    viralmsa_script_ch = Channel.fromPath("${script_dir}/ViralMSA.py", checkIfExists: true)
 
     // ==================================================================================
     // STEP 0: Prepare input reads
-    //         - samplesheet: optional lima demultiplex, BAM->FASTQ, FASTQ pass-through
+    //         - samplesheet / --multiplexed_fastq: optional lima demultiplex
+    //           (BAM *and* FASTQ), BAM->FASTQ conversion, FASTQ pass-through
     //         - patient_dir / patient_bam / patient_fastq
     // ==================================================================================
-    if (params.samples || params.patient_dir || params.patient_bam || params.patient_fastq) {
+    if (params.samples || params.multiplexed_fastq || params.patient_dir || params.patient_bam || params.patient_fastq) {
 
-        // SAMPLESHEET MODE -----------------------------------------------------
-        if (params.samples) {
+        // ROW-BASED MODES (samplesheet or --multiplexed_fastq) ------------------
+        if (params.samples || params.multiplexed_fastq) {
 
-            samplesheet_ch = Channel
-                .fromPath(params.samples, checkIfExists: true)
-                .splitCsv(header: true, strip: true)
+            if (params.samples) {
+                rows_ch = Channel
+                    .fromPath(params.samples, checkIfExists: true)
+                    .splitCsv(header: true, strip: true)
+                    .map { raw ->
+                        // Normalise header keys/values (BOM, CRLF, case, aliases) first.
+                        def row = normaliseRow(raw)
 
-            // ---- Optional lima demultiplex on rows with demux=true ----------
-            if (!params.skip_demux) {
-                // Tag rows for the DEMUX sub-workflow. DEMUX returns
-                // tuple(meta, demuxed_bam) for demux=true rows and the same
-                // shape (meta, original_bam) for the pass-through path.
-                demux_input_rows = samplesheet_ch.map { row ->
-                    // Allow either a per-row barcode_fasta OR fall back to params.default_barcode_fasta
-                    if (row.demux?.toString()?.toLowerCase() in ['true','t','1','yes']
-                        && (!row.barcode_fasta || row.barcode_fasta.trim() == '')
-                        && params.default_barcode_fasta) {
-                        row.barcode_fasta = params.default_barcode_fasta
+                        // Every row must carry reads in at least one of the two columns.
+                        if (!hasVal(row, 'fastq') && !hasVal(row, 'bam')) {
+                            throw new IllegalArgumentException(
+                                "Samplesheet row '${row.sample}' has neither a 'fastq' nor a " +
+                                "'bam' value. Populate one of them.")
+                        }
+                        row
                     }
-                    row
+
+            } else {
+                // --multiplexed_fastq: synthesise one demux row per input pool.
+                // barcode='*' tells DEMUX to emit every barcode lima finds,
+                // naming samples <pool>.<barcode>.
+                if (!params.default_barcode_fasta) {
+                    throw new IllegalArgumentException(
+                        "--multiplexed_fastq requires --default_barcode_fasta (the barcode FASTA).")
                 }
-                DEMUX(demux_input_rows)
+                if (params.skip_demux) {
+                    throw new IllegalArgumentException(
+                        "--multiplexed_fastq is inherently multiplexed; it cannot be combined " +
+                        "with --skip_demux. Use --patient_fastq for pre-demultiplexed reads.")
+                }
 
-                // Rename so each demuxed BAM is named ${sample}.bam (lima
-                // emits <prefix>.<barcode>.bam by default).
+                rows_ch = Channel
+                    .fromPath(params.multiplexed_fastq, checkIfExists: true)
+                    .map { f ->
+                        def run_id = f.name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
+                        [ sample:        run_id,
+                          sample_id:     run_id,
+                          patient_id:    null,
+                          timepoint:     null,
+                          fastq:         f.toString(),
+                          demux:         'true',
+                          barcode:       '*',
+                          barcode_fasta: params.default_barcode_fasta ]
+                    }
+            }
+
+            if (!params.skip_demux) {
+
+                // DEMUX handles all four cases in one pass: demux/pass-through
+                // x BAM/FASTQ. It emits tuple(meta, reads) on .bam and .fastq.
+                DEMUX(rows_ch.map { row -> resolveDemuxRow(row) })
+
+                // --- BAM side: rename to <sample>.bam, then convert to FASTQ ---
                 RENAME_DEMUXED_BAM(DEMUX.out.bam)
+                BAM_TO_FASTQ(RENAME_DEMUXED_BAM.out.bam)
+                bam_converted_ch = BAM_TO_FASTQ.out.fastq
+                    .map { f -> tuple(f.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, ''), f) }
 
-                // FASTQ rows from samplesheet pass straight through; demux
-                // outputs and non-demux BAM rows enter BAM_TO_FASTQ.
-                fastq_rows_ch = samplesheet_ch
-                    .filter { row -> row.containsKey('fastq') && row.fastq && row.fastq.trim() != '' }
-                    .map { row -> tuple(row.sample, file(row.fastq, checkIfExists: true)) }
+                // --- FASTQ side: rename/compress to <sample>.fastq.gz ----------
+                // lima cannot emit BAM from FASTQ input, so these never enter
+                // BAM_TO_FASTQ. If the sheet is FASTQ-only, DEMUX.out.bam is
+                // empty and the BAM branch above simply spawns zero tasks.
+                RENAME_DEMUXED_FASTQ(DEMUX.out.fastq)
+                fastq_ready_ch = RENAME_DEMUXED_FASTQ.out.fastq
+                    .map { meta, f -> tuple(meta.id, f) }
 
-                bam_files_ch = RENAME_DEMUXED_BAM.out.bam
+                input_reads_ch = fastq_ready_ch.mix(bam_converted_ch)
+
+            } else {
+                // --skip_demux: bypass lima entirely, mirroring DEMUX's
+                // precedence rule that 'bam' wins when a row sets both.
+                bam_files_ch = rows_ch
+                    .filter { row -> hasVal(row, 'bam') }
+                    .map    { row -> file(row.bam, checkIfExists: true) }
 
                 BAM_TO_FASTQ(bam_files_ch)
                 bam_converted_ch = BAM_TO_FASTQ.out.fastq
                     .map { f -> tuple(f.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, ''), f) }
 
-                input_reads_ch = fastq_rows_ch.mix(bam_converted_ch)
-
-            } else {
-                // skip_demux
-                bam_rows_ch = samplesheet_ch
-                    .filter { row -> row.containsKey('bam') && row.bam && row.bam.trim() != '' }
-                    .map    { row -> file(row.bam, checkIfExists: true) }
-
-                BAM_TO_FASTQ(bam_rows_ch)
-                bam_converted_ch = BAM_TO_FASTQ.out.fastq
-                    .map { f -> tuple(f.baseName.replaceAll(/\.(fastq|fq)(\.gz)?$/, ''), f) }
-
-                fastq_rows_ch = samplesheet_ch
-                    .filter { row -> row.containsKey('fastq') && row.fastq && row.fastq.trim() != '' }
+                fastq_ready_ch = rows_ch
+                    .filter { row -> hasVal(row, 'fastq') && !hasVal(row, 'bam') }
                     .map    { row -> tuple(row.sample, file(row.fastq, checkIfExists: true)) }
 
-                input_reads_ch = fastq_rows_ch.mix(bam_converted_ch)
+                input_reads_ch = fastq_ready_ch.mix(bam_converted_ch)
             }
+
 
         } else if (params.patient_dir) {
 
@@ -440,6 +686,9 @@ workflow {
                     tuple(sample_id, file) }
         }
     }
+    // RepeatMasker download  — cached by REPEATMASKER_DOWNLOAD.
+    rmsk_inputs = Channel.of(tuple('t2t',  params.repeatmasker_url_t2t))
+    REPEATMASKER_DOWNLOAD(rmsk_inputs)
 
     // Convert/pass-through annotation file to GTF regardless of input format
     GFFCONVERT(annotation_ch)
@@ -451,17 +700,16 @@ workflow {
     // ==================================================================================
     MULTI_REFERENCE_MAPPING(input_reads_ch, viral_genomes_ch, host_genome_ch.first())
 
-    grouped_results = MULTI_REFERENCE_MAPPING.out.results
+    grouped_results = MULTI_REFERENCE_MAPPING.out.results_selectBest
         .groupTuple(by: 0, size: n_viral_refs, remainder: true)
-        .map { sample_id, viral_genomes, sams, stats, fasta ->
-            tuple(sample_id, viral_genomes, sams, stats, fasta) }
+        .map { sample_id, viral_genomes, sams, primary_sams, stats, fasta, unmask_fa, host_flank ->
+            tuple(sample_id, viral_genomes, sams, primary_sams,stats, fasta, unmask_fa, host_flank) }
 
-    QUALIMAP(MULTI_REFERENCE_MAPPING.out.sorted_bam)
     SELECT_BEST_REFERENCE(grouped_results)
 
     // every sample that entered the step
     all_ids = grouped_results.map { tuple(it[0], 'seen') }
-    ok_ids  = SELECT_BEST_REFERENCE.out.best_ref_name.map { tuple(it[0], 'ok') }
+    ok_ids = SELECT_BEST_REFERENCE.out.best_ref_name.map { tuple(it[0], 'ok') }
 
     failed_ids = all_ids
         .join(ok_ids, remainder: true)
@@ -472,14 +720,18 @@ workflow {
         .collectFile(name: 'failed_best_reference_samples.txt', newLine: true, sort: true,
                     storeDir: "${params.outdir}")
 
-    // Get unmasked fasta
-    unmask_input = SELECT_BEST_REFERENCE.out.best_sam
-        .join(SELECT_BEST_REFERENCE.out.mask_fa)
-    
-    UNMASK_SEQUENCES(unmask_input, unmask_script_ch.first())
     annotate_input = SELECT_BEST_REFERENCE.out.best_ref_fa
-        .join(UNMASK_SEQUENCES.out.fasta)
+        .join(SELECT_BEST_REFERENCE.out.unmask_fa)
+        .join(SELECT_BEST_REFERENCE.out.host_flanks_fa)
         .join(SELECT_BEST_REFERENCE.out.best_sam)
+
+    // Run ViralMSA
+    VIRALMSA(SELECT_BEST_REFERENCE.out.best_ref_fa
+        .join(SELECT_BEST_REFERENCE.out.unmask_fa),
+        viralmsa_script_ch.first())
+
+    // Run HyperMut3
+    HYPERMUT3(VIRALMSA.out.alignment)
 
     // Integrate the annotations
     INTEGRATION_ANNOTATE(annotate_input,
@@ -495,8 +747,8 @@ workflow {
 
     // QC output
     MULTIQC(FASTQC.out.zip
-        .mix(MULTI_REFERENCE_MAPPING.out.results.map { it[3] })
-        .mix(QUALIMAP.out.results)
+        .mix(MULTI_REFERENCE_MAPPING.out.results_selectBest.map { it[3] })
+        //.mix(QUALIMAP.out.results)
         .collect())
 }
 
@@ -514,18 +766,7 @@ workflow.onComplete {
     log.info ""
     log.info "Key Results:"
     log.info "  01_reference_selection/   - Best viral reference & initial mapping"
-    log.info "  04_final_results/         - Integration sites in human genome"
-    log.info "  <sample>/repeats/         - RepeatMasker overlap (T2T + HG38)"
-    log.info "  <sample>/circos/          - Per-sample circos PNG"
-    log.info "  <sample>/report/          - Slim single-page + multi-page HTML"
-    log.info "  project/circos/           - Project-wide circos PNG"
-    log.info "  project/report/           - Project rollup HTML (single + multi-page)"
+    log.info "  final_results/            - Integration sites in human genome"
     log.info ""
-    log.info "Integration Sites:"
-    log.info "  ${params.outdir}/04_final_results/*integration_sites.txt"
-    log.info "  ${params.outdir}/04_final_results/*integration_summary.txt"
-    log.info ""
-    log.info "Iteration Logs:"
-    log.info "  ${params.outdir}/02_iterative_masking/*_iteration_log.txt"
     log.info "========================================================================================"
 }

@@ -556,7 +556,7 @@ workflow {
     get_flanks_script_ch = Channel.fromPath("${script_dir}/get_flanks.py", checkIfExists: true)
     annotate_script_ch = Channel.fromPath("${script_dir}/1.annotate_integrations_HIV.R", checkIfExists:true)
     blast_script_ch = Channel.fromPath("${script_dir}/findHIVSIVGeneRegionsV9.6", checkIfExists: true)
-    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM_v2.pl", checkIfExists: true)
+    clone_calling_script_ch = Channel.fromPath("${script_dir}/parseSAM_v3.pl", checkIfExists: true)
     report_script_ch = Channel.fromPath("${script_dir}/3.Create_Sample_HTML.R", checkIfExists: true)
     viralmsa_script_ch = Channel.fromPath("${script_dir}/ViralMSA.py", checkIfExists: true)
 

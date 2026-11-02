@@ -39,7 +39,8 @@ process INTEGRATION_ANNOTATE {
         perl ${clone_calling_script} \\
             tmp_working.bam \\
             \${ref_name} \\
-            ${sample_id_i}
+            ${sample_id_i} \\
+            ${unmasked_fa}
 
         # 1. BLAST viral genes -----------------------------------------------
         mkdir -p ${projectDir}/tmp

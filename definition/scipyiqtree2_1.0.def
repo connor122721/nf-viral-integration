@@ -1,0 +1,66 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%labels
+    Author  you@example.org
+    Description  Minimal container with scipy + IQ-TREE2
+    Scipy.Version   installed via pip (see %post)
+    IQTREE.Version  2.4.0
+
+%post
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+
+    IQTREE_VERSION=2.4.0
+
+    # wget/ca-certificates are only needed to fetch IQ-TREE2 and get purged
+    # after; procps stays installed permanently — it provides `ps`, which
+    # Nextflow shells out to inside every task container to sample CPU/mem
+    # for its trace report. Without it you'll see:
+    #   "Command 'ps' required by nextflow to collect task metrics cannot be found"
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates wget procps
+    rm -rf /var/lib/apt/lists/*
+
+    # scipy: manylinux wheel already bundles its own OpenBLAS, so no extra
+    # system BLAS/LAPACK packages or conda are needed
+    pip install --no-cache-dir --no-compile scipy
+
+    # IQ-TREE2 ships a fully static Linux binary (verified: no shared-lib
+    # dependencies at all), so it just needs to be dropped in place
+    cd /opt
+    wget -q "https://github.com/iqtree/iqtree2/releases/download/v${IQTREE_VERSION}/iqtree-${IQTREE_VERSION}-Linux-intel.tar.gz" -O iqtree.tar.gz
+    tar -xzf iqtree.tar.gz
+    rm iqtree.tar.gz
+    ln -s /opt/iqtree-${IQTREE_VERSION}-Linux-intel/bin/iqtree2 /usr/local/bin/iqtree2
+
+    # drop the tools we only needed for the download step
+    apt-get purge -y wget
+    apt-get autoremove -y
+    apt-get clean
+
+    # trim python bytecode caches / docs to shave a little more size
+    find /usr/local/lib/python3.11 -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+    rm -rf /usr/share/doc /usr/share/man /var/cache/apt
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%test
+    iqtree2 --version
+    python3 -c "import scipy; print('scipy', scipy.__version__)"
+
+%help
+    Minimal Apptainer image bundling:
+      - IQ-TREE2 v2.4.0 (static binary, no conda/bioconda needed)
+      - Python 3 + scipy (pip, manylinux wheel with bundled OpenBLAS)
+
+    Build:
+      apptainer build scipy-iqtree2.sif scipy-iqtree2.def
+
+    Run IQ-TREE2 (default action):
+      apptainer run scipy-iqtree2.sif -s alignment.fasta -m MFP -bb 1000
+
+    Run scipy/python instead:
+      apptainer exec scipy-iqtree2.sif python3 your_script.py

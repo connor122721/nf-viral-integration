@@ -4,7 +4,7 @@ nextflow.enable.dsl = 2
 // Annotation file converter - handles GTF, GTF.gz, GFF3, GFF3.gz, GFF, GFF.gz
 process GFFCONVERT {
     publishDir "${params.outdir}/genome_files", mode: 'copy'
-    container 'library://connmurr243/connmurr_viral/gffread.sif:latest'
+    container params.container_gffread
 
     input:
         path(annotation)

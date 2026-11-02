@@ -1,7 +1,7 @@
 .ipynb_checkpoints/
 .nextflow/
 .nextflow.log*
-.nextflow.pid
+.nextflow.pid*
 *.ipynb
 scripts/.ipynb_checkpoints
 .vscode*
